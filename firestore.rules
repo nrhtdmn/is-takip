@@ -1,15 +1,128 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Aile uygulaması: istemci aile şifresi + grup üyeliği ile sınırlanır.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myProfileId() {
+      return exists(/databases/$(database)/documents/uidMap/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/uidMap/$(request.auth.uid)).data.profileId
+        : request.auth.uid;
+    }
+
+    function membershipDoc(orgId, profileId) {
+      return /databases/$(database)/documents/memberships/$(orgId + '__' + profileId);
+    }
+
+    function isOrgMember(orgId) {
+      return signedIn() && exists(membershipDoc(orgId, myProfileId()));
+    }
+
+    function isOrgAdmin(orgId) {
+      return isOrgMember(orgId)
+        && get(membershipDoc(orgId, myProfileId())).data.role == 'admin';
+    }
+
+    function groupData(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)).data;
+    }
+
+    function isGroupMember(groupId) {
+      return signedIn() && myProfileId() in groupData(groupId).memberIds;
+    }
+
+    function canAccessGroup(groupId) {
+      return isGroupMember(groupId) || isOrgAdmin(groupData(groupId).orgId);
+    }
+
+    function noPinField() {
+      return !('pin' in request.resource.data)
+        || request.resource.data.pin == null;
+    }
+
+    match /uidMap/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.profileId is string;
+      allow update, delete: if false;
+    }
+
     match /profiles/{profileId} {
-      allow read, write: if true;
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && myProfileId() == profileId
+        && noPinField();
+      allow update: if signedIn()
+        && myProfileId() == profileId
+        && noPinField();
+      allow delete: if signedIn() && myProfileId() == profileId;
     }
+
+    match /organizations/{orgId} {
+      allow read: if isOrgMember(orgId);
+      allow create: if signedIn()
+        && request.resource.data.createdById == myProfileId();
+      allow update: if isOrgAdmin(orgId);
+      allow delete: if false;
+    }
+
+    match /memberships/{membershipId} {
+      allow read: if signedIn() && (
+        resource.data.profileId == myProfileId()
+        || isOrgAdmin(resource.data.orgId)
+      );
+      allow create: if signedIn() && (
+        (
+          request.resource.data.profileId == myProfileId()
+          && request.resource.data.role == 'admin'
+        )
+        || isOrgAdmin(request.resource.data.orgId)
+      );
+      allow update, delete: if isOrgAdmin(resource.data.orgId);
+    }
+
     match /groups/{groupId} {
-      allow read, write: if true;
+      allow read: if isOrgAdmin(resource.data.orgId)
+        || (isOrgMember(resource.data.orgId)
+          && myProfileId() in resource.data.memberIds);
+      allow create: if signedIn()
+        && isOrgMember(request.resource.data.orgId)
+        && myProfileId() in request.resource.data.memberIds;
+      allow update: if isOrgAdmin(resource.data.orgId)
+        || (isGroupMember(groupId)
+          && resource.data.createdById == myProfileId());
+      allow delete: if isOrgAdmin(resource.data.orgId)
+        || resource.data.createdById == myProfileId();
     }
-    match /groups/{groupId}/{document=**} {
-      allow read, write: if true;
+
+    match /groups/{groupId}/tasks/{taskId} {
+      allow read: if isOrgMember(groupData(groupId).orgId);
+      allow create, update, delete: if canAccessGroup(groupId);
+    }
+
+    match /groups/{groupId}/tasks/{taskId}/updates/{updateId} {
+      allow read: if isOrgMember(groupData(groupId).orgId);
+      allow create: if canAccessGroup(groupId)
+        && request.resource.data.memberId == myProfileId();
+      allow update, delete: if false;
+    }
+
+    match /recognitions/{id} {
+      allow read: if isOrgMember(resource.data.orgId);
+      allow create: if isOrgAdmin(request.resource.data.orgId)
+        && request.resource.data.givenById == myProfileId();
+      allow update, delete: if isOrgAdmin(resource.data.orgId);
+    }
+
+    match /pushTokens/{id} {
+      allow read, write: if signedIn() && id == myProfileId();
+    }
+
+    match /payments/{id} {
+      allow read: if isOrgAdmin(resource.data.orgId);
+      allow write: if false;
     }
   }
 }

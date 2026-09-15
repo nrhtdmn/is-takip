@@ -3,30 +3,49 @@ import { AppContext } from '../hooks/useApp'
 import {
   clearProfileOnly,
   clearSession,
-  ensureDefaultProfiles,
   fullLogout,
   loadSession,
-  migrateLegacyAileIfNeeded,
   saveSession,
   subscribeGroups,
-  subscribeProfiles,
+  subscribeMemberships,
+  subscribeMyOrganizations,
+  subscribeOrgMemberships,
+  subscribeOrgRecognitions,
+  subscribeOrgTasks,
+  subscribeProfilesForIds,
   subscribeTasks,
+  watchAuth,
+  getProfileById,
+  resolveProfileIdForUid,
   type Session,
 } from '../lib/api'
 import { isFirebaseConfigured } from '../lib/firebase'
 import {
   demoEnsureDefaults,
   demoGetGroups,
+  demoGetMembershipsForOrg,
+  demoGetMembershipsForProfile,
+  demoGetOrganizations,
   demoGetProfiles,
+  demoGetRecognitions,
   demoGetTasksForGroup,
+  demoGetTasksForGroups,
 } from '../lib/demoStore'
-import type { Group, Profile, Task } from '../types'
+import type { Group, Organization, OrgMembership, Profile, Recognition, Task } from '../types'
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [session, setSessionState] = useState<Session | null>(() => loadSession())
+  const [session, setSessionState] = useState<Session | null>(() =>
+    isFirebaseConfigured ? null : loadSession(),
+  )
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [myMemberships, setMyMemberships] = useState<OrgMembership[]>([])
+  const [orgMemberships, setOrgMemberships] = useState<OrgMembership[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [orgTasks, setOrgTasks] = useState<(Task & { groupId: string })[]>([])
+  const [recognitions, setRecognitions] = useState<Recognition[]>([])
   const [loading, setLoading] = useState(true)
   const [tick, setTick] = useState(0)
   const demoMode = !isFirebaseConfigured
@@ -39,8 +58,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const switchProfile = () => {
     clearProfileOnly()
+    if (!demoMode) fullLogout()
     setSessionState(null)
     setTasks([])
+    setOrgTasks([])
+  }
+
+  const leaveOrg = () => {
+    if (!session) return
+    const next: Session = {
+      ...session,
+      orgId: undefined,
+      orgName: undefined,
+      orgRole: undefined,
+      groupId: undefined,
+      groupName: undefined,
+    }
+    saveSession(next)
+    setSessionState(next)
+    setTasks([])
+    setOrgTasks([])
+    setGroups([])
+    setOrgMemberships([])
   }
 
   const leaveGroup = () => {
@@ -55,49 +94,157 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fullLogout()
     setSessionState(null)
     setTasks([])
+    setOrgTasks([])
   }
 
   const refreshLocal = () => setTick((t) => t + 1)
 
+  const currentOrg = organizations.find((o) => o.id === session?.orgId)
+  const isOrgAdmin = session?.orgRole === 'admin'
+
+  // Firebase Auth oturumu
   useEffect(() => {
+    if (demoMode) {
+      setAuthReady(true)
+      return
+    }
+    return watchAuth(async (user) => {
+      if (!user) {
+        clearSession()
+        setSessionState(null)
+        setAuthReady(true)
+        return
+      }
+      try {
+        const profileId = await resolveProfileIdForUid(user.uid)
+        const profile = await getProfileById(profileId)
+        if (!profile) {
+          fullLogout()
+          setSessionState(null)
+          setAuthReady(true)
+          return
+        }
+        const saved = loadSession()
+        if (saved?.memberId === profile.id) {
+          setSessionState({
+            ...saved,
+            memberName: profile.name,
+            memberColor: profile.color,
+            unlocked: true,
+          })
+        } else {
+          setSessionState({
+            memberId: profile.id,
+            memberName: profile.name,
+            memberColor: profile.color,
+            unlocked: true,
+          })
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setAuthReady(true)
+      }
+    })
+  }, [demoMode])
+
+  useEffect(() => {
+    if (!authReady) return
+
     if (demoMode) {
       demoEnsureDefaults()
       setProfiles(demoGetProfiles())
-      setGroups(demoGetGroups())
+      setOrganizations(demoGetOrganizations())
+      if (session?.memberId) {
+        setMyMemberships(demoGetMembershipsForProfile(session.memberId))
+      } else {
+        setMyMemberships([])
+      }
+      if (session?.orgId) {
+        setOrgMemberships(demoGetMembershipsForOrg(session.orgId))
+        setGroups(demoGetGroups(session.orgId))
+      } else {
+        setOrgMemberships([])
+        setGroups([])
+      }
       setLoading(false)
       return
     }
 
-    let cancelled = false
-    ;(async () => {
-      try {
-        await ensureDefaultProfiles()
-        if (session?.memberId) await migrateLegacyAileIfNeeded(session.memberId)
-      } catch (e) {
-        console.error(e)
-      }
-      if (cancelled) return
-    })()
+    if (!session?.memberId) {
+      setProfiles([])
+      setOrganizations([])
+      setMyMemberships([])
+      setLoading(false)
+      return
+    }
 
     const onError = (error: Error) => {
       console.error('Firestore hatası:', error)
       setLoading(false)
     }
 
-    const unsubProfiles = subscribeProfiles(setProfiles, onError)
-    const unsubGroups = subscribeGroups(setGroups, onError)
+    const unsubOrgs = subscribeMyOrganizations(
+      session.memberId,
+      setOrganizations,
+      onError,
+    )
+    const unsubMine = subscribeMemberships(
+      session.memberId,
+      setMyMemberships,
+      onError,
+    )
 
     return () => {
-      cancelled = true
-      unsubProfiles()
-      unsubGroups()
+      unsubOrgs()
+      unsubMine()
     }
-  }, [demoMode, session?.memberId, tick])
+  }, [demoMode, session?.memberId, authReady, tick])
+
+  // Org üyelerinin profilleri
+  useEffect(() => {
+    if (demoMode || !session?.memberId) return
+    const ids = new Set<string>([session.memberId])
+    for (const m of orgMemberships) ids.add(m.profileId)
+    for (const m of myMemberships) ids.add(m.profileId)
+    return subscribeProfilesForIds([...ids], setProfiles, (e) => console.error(e))
+  }, [
+    demoMode,
+    session?.memberId,
+    orgMemberships,
+    myMemberships,
+    tick,
+  ])
+
+  useEffect(() => {
+    if (!session?.orgId) {
+      setGroups([])
+      setOrgMemberships([])
+      return
+    }
+
+    if (demoMode) {
+      setOrgMemberships(demoGetMembershipsForOrg(session.orgId))
+      setGroups(demoGetGroups(session.orgId))
+      return
+    }
+
+    const onError = (error: Error) => console.error(error)
+    const u1 = subscribeOrgMemberships(session.orgId, setOrgMemberships, onError)
+    const u2 = subscribeGroups(session.orgId, setGroups, onError, {
+      profileId: session.memberId,
+      isAdmin: session.orgRole === 'admin',
+    })
+    return () => {
+      u1()
+      u2()
+    }
+  }, [session?.orgId, session?.memberId, session?.orgRole, demoMode, tick])
 
   useEffect(() => {
     if (!session?.groupId) {
       setTasks([])
-      setLoading(false)
+      if (!isOrgAdmin) setLoading(false)
       return
     }
 
@@ -119,23 +266,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLoading(false)
       },
     )
-  }, [session?.groupId, demoMode, tick])
+  }, [session?.groupId, demoMode, tick, isOrgAdmin])
+
+  useEffect(() => {
+    if (!session?.orgId) {
+      setOrgTasks([])
+      return
+    }
+    const ids = groups.map((g) => g.id)
+    if (ids.length === 0) {
+      setOrgTasks([])
+      return
+    }
+    if (demoMode) {
+      setOrgTasks(demoGetTasksForGroups(ids))
+      return
+    }
+    return subscribeOrgTasks(ids, setOrgTasks, (e) => console.error(e))
+  }, [session?.orgId, groups, demoMode, tick])
+
+  useEffect(() => {
+    if (!session?.orgId) {
+      setRecognitions([])
+      return
+    }
+    if (demoMode) {
+      setRecognitions(demoGetRecognitions(session.orgId))
+      return
+    }
+    return subscribeOrgRecognitions(session.orgId, setRecognitions, (e) => console.error(e))
+  }, [session?.orgId, demoMode, tick])
 
   const value = useMemo(
     () => ({
       session,
       profiles,
+      organizations,
+      myMemberships,
+      orgMemberships,
       groups,
       tasks,
-      loading,
+      orgTasks,
+      recognitions,
+      loading: loading || !authReady,
       demoMode,
       setSession,
       switchProfile,
+      leaveOrg,
       leaveGroup,
       logout,
       refreshLocal,
+      currentOrg,
+      isOrgAdmin,
     }),
-    [session, profiles, groups, tasks, loading, demoMode],
+    [
+      session,
+      profiles,
+      organizations,
+      myMemberships,
+      orgMemberships,
+      groups,
+      tasks,
+      orgTasks,
+      recognitions,
+      loading,
+      authReady,
+      demoMode,
+      currentOrg,
+      isOrgAdmin,
+    ],
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

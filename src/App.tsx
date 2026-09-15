@@ -2,13 +2,15 @@ import { AppProvider } from './components/AppProvider'
 import { AuthScreen } from './components/AuthScreen'
 import { GroupScreen } from './components/GroupScreen'
 import { HomeScreen } from './components/HomeScreen'
+import { NotificationWatcher } from './components/NotificationWatcher'
+import { OrgScreen } from './components/OrgScreen'
 import { useApp } from './hooks/useApp'
-import { isFamilyUnlocked } from './lib/api'
 import './App.css'
 
 function Gate() {
   const { session } = useApp()
-  if (!isFamilyUnlocked() || !session?.memberId) return <AuthScreen />
+  if (!session?.memberId) return <AuthScreen />
+  if (!session.orgId) return <OrgScreen />
   if (!session.groupId) return <GroupScreen />
   return <HomeScreen />
 }
@@ -16,6 +18,7 @@ function Gate() {
 export default function App() {
   return (
     <AppProvider>
+      <NotificationWatcher />
       <Gate />
     </AppProvider>
   )

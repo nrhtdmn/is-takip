@@ -1,12 +1,30 @@
-import type { Group, Profile, Task, TaskCategory, TaskStatus, TaskUpdate } from '../types'
+import type {
+  Group,
+  Organization,
+  OrgMembership,
+  OrgRole,
+  PlanId,
+  Profile,
+  ProfileVisibility,
+  Recognition,
+  Task,
+  TaskCategory,
+  TaskStatus,
+  TaskUpdate,
+} from '../types'
 import type { Session } from './api'
 import { createLocalId } from './api'
-import { DEFAULT_PROFILES } from '../types'
+import { DEFAULT_VISIBILITY, normalizeProfile } from '../types'
+import { effectivePlan } from './plans'
+import { isValidTc, normalizeTc } from './tc'
 
-const PROFILES_KEY = 'gorevtakip_v2_profiles'
-const GROUPS_KEY = 'gorevtakip_v2_groups'
-const TASKS_KEY = 'gorevtakip_v2_tasks'
-const UPDATES_KEY = 'gorevtakip_v2_updates'
+const PROFILES_KEY = 'istakip_v4_profiles'
+const ORGS_KEY = 'istakip_v4_orgs'
+const MEMBERS_KEY = 'istakip_v4_memberships'
+const GROUPS_KEY = 'istakip_v4_groups'
+const TASKS_KEY = 'istakip_v4_tasks'
+const UPDATES_KEY = 'istakip_v4_updates'
+const RECOG_KEY = 'istakip_v4_recognitions'
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -21,84 +39,117 @@ function write<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
+type DemoTask = Task & { groupId: string }
+
 export function demoEnsureDefaults() {
-  let profiles = read<Profile[]>(PROFILES_KEY, [])
-  const nurhatPin = import.meta.env.VITE_NURHAT_PIN || '2580'
-  if (profiles.length === 0) {
-    const now = Date.now()
-    profiles = DEFAULT_PROFILES.map((p) => ({
-      id: p.id,
-      name: p.name,
-      color: p.color,
-      createdAt: now,
-      ...(p.id === 'nurhat' ? { pin: nurhatPin } : {}),
-    }))
-    write(PROFILES_KEY, profiles)
-  } else {
-    profiles = profiles.map((p) =>
-      p.id === 'nurhat' || p.name.toLowerCase() === 'nurhat'
-        ? { ...p, id: 'nurhat', name: 'Nurhat', pin: nurhatPin }
-        : p,
-    )
-    write(PROFILES_KEY, profiles)
-  }
-  let groups = read<Group[]>(GROUPS_KEY, [])
-  if (groups.length === 0) {
-    groups = [
-      {
-        id: 'aile',
-        name: 'Ev',
-        memberIds: profiles.map((p) => p.id),
-        createdAt: Date.now(),
-        createdById: 'sistem',
-        createdByName: 'sistem',
-      },
-    ]
-    write(GROUPS_KEY, groups)
-  }
+  // Boş başla — kullanıcı TC ile kendi hesabını açar
+  if (!localStorage.getItem(PROFILES_KEY)) write(PROFILES_KEY, [])
+  if (!localStorage.getItem(ORGS_KEY)) write(ORGS_KEY, [])
+  if (!localStorage.getItem(MEMBERS_KEY)) write(MEMBERS_KEY, [])
+  if (!localStorage.getItem(GROUPS_KEY)) write(GROUPS_KEY, [])
 }
 
 export function demoGetProfiles() {
   demoEnsureDefaults()
-  return read<Profile[]>(PROFILES_KEY, [])
+  return read<Profile[]>(PROFILES_KEY, []).map((p) => normalizeProfile(p))
 }
 
-export function demoGetGroups() {
+export function demoGetOrganizations(): Organization[] {
   demoEnsureDefaults()
-  return read<Group[]>(GROUPS_KEY, [])
+  return read<Organization[]>(ORGS_KEY, []).map((o) => ({
+    ...o,
+    plan: effectivePlan(o.plan || 'free', o.planExpiresAt),
+  }))
 }
 
-export function demoGetTasks(groupId: string) {
-  return read<Task[]>(TASKS_KEY, [])
-    .filter((t) => (t as Task & { groupId?: string }).groupId === groupId || !(t as Task & { groupId?: string }).groupId && groupId === 'aile')
-    .sort((a, b) => b.createdAt - a.createdAt)
+export function demoGetMembershipsForProfile(profileId: string) {
+  demoEnsureDefaults()
+  return read<OrgMembership[]>(MEMBERS_KEY, []).filter((m) => m.profileId === profileId)
 }
 
-// Store tasks with groupId field in demo
-type DemoTask = Task & { groupId: string }
-
-function allDemoTasks(): DemoTask[] {
-  return read<DemoTask[]>(TASKS_KEY, [])
+export function demoGetMembershipsForOrg(orgId: string) {
+  demoEnsureDefaults()
+  return read<OrgMembership[]>(MEMBERS_KEY, []).filter((m) => m.orgId === orgId)
 }
 
-export function demoCreateProfile(name: string, color: string, pin?: string): Profile {
-  const profile: Profile = {
-    id: createLocalId(),
+export function demoGetGroups(orgId?: string) {
+  demoEnsureDefaults()
+  const all = read<Group[]>(GROUPS_KEY, [])
+  if (!orgId) return all
+  return all.filter((g) => g.orgId === orgId)
+}
+
+export function demoGetProfileById(profileId: string): Profile | null {
+  const id = normalizeTc(profileId) || profileId.trim()
+  return demoGetProfiles().find((p) => p.id === id) || null
+}
+
+export function demoCreateProfile(
+  tc: string,
+  name: string,
+  color: string,
+  pin?: string,
+): Profile {
+  const id = normalizeTc(tc)
+  if (!isValidTc(id)) {
+    throw new Error('Geçerli bir T.C. Kimlik No girin (11 hane)')
+  }
+  if (demoGetProfileById(id)) {
+    throw new Error('Bu T.C. Kimlik No ile kayıt zaten var — giriş yapın')
+  }
+  const profile = normalizeProfile({
+    id,
     name: name.trim(),
     color,
     createdAt: Date.now(),
     ...(pin?.trim() ? { pin: pin.trim() } : {}),
-  }
+    visibility: DEFAULT_VISIBILITY,
+  })
   const list = demoGetProfiles()
   list.push(profile)
   write(PROFILES_KEY, list)
   return profile
 }
 
+export function demoUpdateProfile(
+  profileId: string,
+  patch: {
+    name?: string
+    color?: string
+    pin?: string | null
+    email?: string
+    phone?: string
+    bio?: string
+    jobTitle?: string
+    visibility?: ProfileVisibility
+  },
+) {
+  const list = demoGetProfiles().map((p) => {
+    if (p.id !== profileId) return p
+    const next = { ...p }
+    if (patch.name !== undefined) next.name = patch.name.trim()
+    if (patch.color !== undefined) next.color = patch.color
+    if (patch.email !== undefined) next.email = patch.email.trim() || undefined
+    if (patch.phone !== undefined) next.phone = patch.phone.trim() || undefined
+    if (patch.bio !== undefined) next.bio = patch.bio.trim() || undefined
+    if (patch.jobTitle !== undefined) next.jobTitle = patch.jobTitle.trim() || undefined
+    if (patch.visibility !== undefined) next.visibility = patch.visibility
+    if (patch.pin !== undefined) {
+      next.pin = patch.pin && patch.pin.trim() ? patch.pin.trim() : undefined
+    }
+    return normalizeProfile(next)
+  })
+  write(PROFILES_KEY, list)
+}
+
 export function demoDeleteProfile(id: string) {
   write(
     PROFILES_KEY,
     demoGetProfiles().filter((p) => p.id !== id),
+  )
+  write(
+    MEMBERS_KEY,
+    read<OrgMembership[]>(MEMBERS_KEY, []).filter((m) => m.profileId !== id),
   )
   write(
     GROUPS_KEY,
@@ -109,13 +160,103 @@ export function demoDeleteProfile(id: string) {
   )
 }
 
+export function demoCreateOrganization(name: string, member: Session): Organization {
+  const org: Organization = {
+    id: createLocalId(),
+    name: name.trim(),
+    createdAt: Date.now(),
+    createdById: member.memberId,
+    createdByName: member.memberName,
+    plan: 'free',
+  }
+  const orgs = demoGetOrganizations()
+  orgs.push(org)
+  write(ORGS_KEY, orgs)
+  const memberships = read<OrgMembership[]>(MEMBERS_KEY, [])
+  memberships.push({
+    orgId: org.id,
+    profileId: member.memberId,
+    role: 'admin',
+    title: 'Yönetici',
+    joinedAt: Date.now(),
+  })
+  write(MEMBERS_KEY, memberships)
+  return org
+}
+
+export function demoSetOrgPlan(orgId: string, plan: PlanId, months = 1) {
+  write(
+    ORGS_KEY,
+    demoGetOrganizations().map((o) =>
+      o.id === orgId
+        ? {
+            ...o,
+            plan,
+            planExpiresAt:
+              plan === 'free' ? undefined : Date.now() + months * 30 * 24 * 60 * 60 * 1000,
+          }
+        : o,
+    ),
+  )
+}
+
+export function demoAddOrgMember(
+  orgId: string,
+  profileId: string,
+  role: OrgRole,
+  title?: string,
+) {
+  const list = read<OrgMembership[]>(MEMBERS_KEY, [])
+  const existing = list.findIndex((m) => m.orgId === orgId && m.profileId === profileId)
+  const row: OrgMembership = {
+    orgId,
+    profileId,
+    role,
+    title: title?.trim() || undefined,
+    joinedAt: Date.now(),
+  }
+  if (existing >= 0) list[existing] = { ...list[existing], ...row, joinedAt: list[existing].joinedAt }
+  else list.push(row)
+  write(MEMBERS_KEY, list)
+}
+
+export function demoUpdateOrgMember(
+  orgId: string,
+  profileId: string,
+  role: OrgRole,
+  title?: string,
+) {
+  demoAddOrgMember(orgId, profileId, role, title)
+}
+
+export function demoRemoveOrgMember(orgId: string, profileId: string) {
+  write(
+    MEMBERS_KEY,
+    read<OrgMembership[]>(MEMBERS_KEY, []).filter(
+      (m) => !(m.orgId === orgId && m.profileId === profileId),
+    ),
+  )
+  write(
+    GROUPS_KEY,
+    demoGetGroups().map((g) =>
+      g.orgId === orgId
+        ? { ...g, memberIds: g.memberIds.filter((id) => id !== profileId) }
+        : g,
+    ),
+  )
+}
+
 export function demoCreateGroup(
+  orgId: string,
   name: string,
   member: Session,
   memberIds: string[],
+  parentId?: string | null,
 ): Group {
   const group: Group = {
     id: createLocalId(),
+    orgId,
+    parentId: parentId || null,
     name: name.trim(),
     memberIds: Array.from(new Set([member.memberId, ...memberIds])),
     createdAt: Date.now(),
@@ -135,7 +276,18 @@ export function demoUpdateGroupMembers(groupId: string, memberIds: string[]) {
   )
 }
 
+export function demoRenameGroup(groupId: string, name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Grup adı gerekli')
+  write(
+    GROUPS_KEY,
+    demoGetGroups().map((g) => (g.id === groupId ? { ...g, name: trimmed } : g)),
+  )
+}
+
 export function demoDeleteGroup(groupId: string) {
+  const children = demoGetGroups().filter((g) => g.parentId === groupId)
+  for (const c of children) demoDeleteGroup(c.id)
   write(
     GROUPS_KEY,
     demoGetGroups().filter((g) => g.id !== groupId),
@@ -146,15 +298,25 @@ export function demoDeleteGroup(groupId: string) {
   )
 }
 
+function allDemoTasks(): DemoTask[] {
+  return read<DemoTask[]>(TASKS_KEY, [])
+}
+
 export function demoCreateTask(input: {
   groupId: string
   title: string
   description: string
   category: TaskCategory
   member: Session
+  dueAt?: number
+  assigneeIds?: string[]
+  assigneeNames?: string[]
+  assignEveryone?: boolean
 }) {
   const now = Date.now()
   const id = createLocalId()
+  const assigneeIds = input.assigneeIds || []
+  const assigneeNames = input.assigneeNames || []
   const task: DemoTask = {
     id,
     groupId: input.groupId,
@@ -166,10 +328,21 @@ export function demoCreateTask(input: {
     createdByName: input.member.memberName,
     createdAt: now,
     updatedAt: now,
+    assigneeIds,
+    assigneeNames,
+    assignEveryone: Boolean(input.assignEveryone),
+    ...(assigneeIds[0]
+      ? { assigneeId: assigneeIds[0], assigneeName: assigneeNames[0] }
+      : {}),
+    ...(input.dueAt ? { dueAt: input.dueAt } : {}),
   }
   const tasks = allDemoTasks()
   tasks.unshift(task)
   write(TASKS_KEY, tasks)
+
+  let who = 'Atama yok'
+  if (input.assignEveryone) who = 'Herkese atandı'
+  else if (assigneeNames.length) who = `Atanan: ${assigneeNames.join(', ')}`
 
   const updates = read<TaskUpdate[]>(UPDATES_KEY, [])
   updates.push({
@@ -179,11 +352,55 @@ export function demoCreateTask(input: {
     memberName: input.member.memberName,
     type: 'created',
     status: 'open',
-    message: 'Görev oluşturuldu',
+    message: input.dueAt
+      ? `Görev oluşturuldu · ${who} · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}`
+      : `Görev oluşturuldu · ${who}`,
     createdAt: now,
   })
   write(UPDATES_KEY, updates)
   return id
+}
+
+export function demoUpdateTask(input: {
+  groupId: string
+  taskId: string
+  member: Session
+  title: string
+  description: string
+  category: TaskCategory
+  dueAt?: number | null
+}) {
+  const title = input.title.trim()
+  if (!title) throw new Error('Görev başlığı gerekli')
+  const now = Date.now()
+  const tasks = allDemoTasks()
+  const idx = tasks.findIndex((t) => t.id === input.taskId)
+  if (idx < 0) throw new Error('Görev bulunamadı')
+  const next = {
+    ...tasks[idx],
+    title,
+    description: input.description.trim(),
+    category: input.category,
+    updatedAt: now,
+    dueAt: input.dueAt || undefined,
+  }
+  if (!input.dueAt) delete next.dueAt
+  tasks[idx] = next
+  write(TASKS_KEY, tasks)
+
+  const updates = read<TaskUpdate[]>(UPDATES_KEY, [])
+  updates.push({
+    id: createLocalId(),
+    taskId: input.taskId,
+    memberId: input.member.memberId,
+    memberName: input.member.memberName,
+    type: 'edit',
+    message: input.dueAt
+      ? `Görev düzenlendi · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}`
+      : 'Görev düzenlendi',
+    createdAt: now,
+  })
+  write(UPDATES_KEY, updates)
 }
 
 export function demoGetUpdates(taskId: string) {
@@ -212,9 +429,18 @@ export function demoUpdateStatus(input: {
   if (input.status === 'completed') {
     task.completedAt = now
     task.failReason = undefined
+    task.approvalStatus = 'pending'
+    task.approvedAt = undefined
+    task.approvedById = undefined
+    task.approvedByName = undefined
+    task.approvalNote = undefined
   }
   if (input.status === 'blocked') {
     task.failReason = input.failReason?.trim() || 'Belirtilmedi'
+    task.approvalStatus = undefined
+  }
+  if (input.status !== 'completed' && input.status !== 'blocked') {
+    task.approvalStatus = undefined
   }
   write(TASKS_KEY, tasks)
 
@@ -222,7 +448,7 @@ export function demoUpdateStatus(input: {
     open: 'Bekliyor',
     started: 'İşe başladım',
     in_progress: 'Devam ediyor',
-    completed: 'Tamamladım',
+    completed: 'Tamamladım (onay bekliyor)',
     blocked: 'Tamamlayamadım',
   }
   let message = `Durum: ${labels[input.status]}`
@@ -241,6 +467,73 @@ export function demoUpdateStatus(input: {
     createdAt: now,
   })
   write(UPDATES_KEY, updates)
+}
+
+export function demoApproveTask(input: {
+  groupId: string
+  taskId: string
+  member: Session
+  decision: 'approved' | 'rejected'
+  note?: string
+}) {
+  const now = Date.now()
+  const note = input.note?.trim() || ''
+  const tasks = allDemoTasks()
+  const task = tasks.find((t) => t.id === input.taskId)
+  if (!task) return
+  task.approvalStatus = input.decision
+  task.approvedAt = now
+  task.approvedById = input.member.memberId
+  task.approvedByName = input.member.memberName
+  task.approvalNote = note || undefined
+  task.updatedAt = now
+  write(TASKS_KEY, tasks)
+  const updates = read<TaskUpdate[]>(UPDATES_KEY, [])
+  updates.push({
+    id: createLocalId(),
+    taskId: input.taskId,
+    memberId: input.member.memberId,
+    memberName: input.member.memberName,
+    type: 'approval',
+    status: 'completed',
+    message:
+      input.decision === 'approved'
+        ? `Yönetici onayladı${note ? ` · ${note}` : ''}`
+        : `Yönetici reddetti${note ? ` · ${note}` : ''}`,
+    createdAt: now,
+  })
+  write(UPDATES_KEY, updates)
+}
+
+export function demoGetRecognitions(orgId: string): Recognition[] {
+  return read<Recognition[]>(RECOG_KEY, [])
+    .filter((r) => r.orgId === orgId)
+    .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export function demoAddRecognition(input: {
+  orgId: string
+  profileId: string
+  badge: string
+  title: string
+  message?: string
+  member: Session
+}): Recognition {
+  const row: Recognition = {
+    id: createLocalId(),
+    orgId: input.orgId,
+    profileId: input.profileId,
+    badge: input.badge,
+    title: input.title.trim(),
+    message: input.message?.trim(),
+    givenById: input.member.memberId,
+    givenByName: input.member.memberName,
+    createdAt: Date.now(),
+  }
+  const list = read<Recognition[]>(RECOG_KEY, [])
+  list.unshift(row)
+  write(RECOG_KEY, list)
+  return row
 }
 
 export function demoAddNote(input: {
@@ -285,4 +578,22 @@ export function demoGetTasksForGroup(groupId: string) {
   return allDemoTasks()
     .filter((t) => t.groupId === groupId)
     .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export function demoGetTasksForGroups(groupIds: string[]) {
+  const set = new Set(groupIds)
+  return allDemoTasks()
+    .filter((t) => set.has(t.groupId))
+    .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export function demoCountOpenTasksByPerson(orgId: string, profileId: string) {
+  const groupIds = demoGetGroups(orgId).map((g) => g.id)
+  const set = new Set(groupIds)
+  return allDemoTasks().filter(
+    (t) =>
+      set.has(t.groupId) &&
+      t.createdById === profileId &&
+      t.status !== 'completed',
+  ).length
 }

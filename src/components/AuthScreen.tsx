@@ -1,59 +1,25 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useApp } from '../hooks/useApp'
-import {
-  createProfile,
-  deleteProfile,
-  ensureDefaultProfiles,
-  isFamilyUnlocked,
-  setFamilyUnlocked,
-} from '../lib/api'
-import { FAMILY_PASSWORD } from '../lib/firebase'
-import {
-  demoCreateProfile,
-  demoDeleteProfile,
-  demoEnsureDefaults,
-} from '../lib/demoStore'
-import { PROFILE_COLORS, profileNeedsPin, type Profile } from '../types'
+import { loginWithAuth, registerWithAuth } from '../lib/api'
+import { demoCreateProfile, demoGetProfileById } from '../lib/demoStore'
+import { isValidTc, normalizeTc } from '../lib/tc'
+import { PROFILE_COLORS, profileNeedsPin } from '../types'
 
 export function AuthScreen() {
-  const { setSession, demoMode, profiles, refreshLocal, logout } = useApp()
-  const [step, setStep] = useState<'password' | 'pick' | 'pin'>(() =>
-    isFamilyUnlocked() ? 'pick' : 'password',
-  )
-  const [password, setPassword] = useState('')
-  const [pinInput, setPinInput] = useState('')
-  const [pendingProfile, setPendingProfile] = useState<Profile | null>(null)
+  const { setSession, demoMode, refreshLocal } = useApp()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [tc, setTc] = useState('')
+  const [name, setName] = useState('')
+  const [pin, setPin] = useState('')
+  const [color, setColor] = useState(PROFILE_COLORS[0])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState(PROFILE_COLORS[0])
-  const [newPin, setNewPin] = useState('')
 
-  useEffect(() => {
-    if (step !== 'pick') return
-    if (demoMode) {
-      demoEnsureDefaults()
-      refreshLocal?.()
-      return
-    }
-    ensureDefaultProfiles()
-      .then(() => refreshLocal?.())
-      .catch(console.error)
-  }, [step, demoMode, refreshLocal])
-
-  const unlock = (e: FormEvent) => {
-    e.preventDefault()
-    if (password.trim() !== FAMILY_PASSWORD) {
-      setError('Aile şifresi hatalı')
-      return
-    }
-    setFamilyUnlocked(true)
-    setError('')
-    setStep('pick')
-  }
-
-  const completeEnter = (profile: Profile) => {
+  const completeEnter = (profile: {
+    id: string
+    name: string
+    color: string
+  }) => {
     setSession({
       memberId: profile.id,
       memberName: profile.name,
@@ -62,63 +28,75 @@ export function AuthScreen() {
     })
   }
 
-  const enterAs = (profile: Profile) => {
-    setError('')
-    if (profileNeedsPin(profile)) {
-      setPendingProfile(profile)
-      setPinInput('')
-      setStep('pin')
+  const login = async (e: FormEvent) => {
+    e.preventDefault()
+    const id = normalizeTc(tc)
+    if (!isValidTc(id)) {
+      setError('Geçerli bir T.C. Kimlik No girin')
       return
     }
-    completeEnter(profile)
-  }
-
-  const submitPin = (e: FormEvent) => {
-    e.preventDefault()
-    if (!pendingProfile) return
-    if (pinInput.trim() !== pendingProfile.pin?.trim()) {
-      setError('Profil şifresi hatalı')
-      return
-    }
-    setError('')
-    completeEnter(pendingProfile)
-  }
-
-  const addProfile = async (e: FormEvent) => {
-    e.preventDefault()
-    if (newName.trim().length < 2) {
-      setError('İsim en az 2 karakter olmalı')
+    if (!demoMode && pin.trim().length < 6) {
+      setError('Şifre en az 6 karakter')
       return
     }
     setBusy(true)
     setError('')
     try {
-      const pin = newPin.trim() || undefined
-      const profile = demoMode
-        ? demoCreateProfile(newName, newColor, pin)
-        : await createProfile({ name: newName, color: newColor, pin })
-      refreshLocal?.()
-      setCreating(false)
-      setNewName('')
-      setNewPin('')
-      // Yeni profil şifreliyse hemen sormadan gir (az önce kendi yazdı)
-      completeEnter(profile)
+      if (demoMode) {
+        const profile = demoGetProfileById(id)
+        if (!profile) {
+          setError('Bu kimlikle kayıt yok. Hesap oluşturun.')
+          return
+        }
+        if (profileNeedsPin(profile) && pin.trim() !== profile.pin?.trim()) {
+          setError('Şifre hatalı')
+          return
+        }
+        completeEnter(profile)
+      } else {
+        const profile = await loginWithAuth(id, pin)
+        completeEnter(profile)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Profil eklenemedi')
+      setError(err instanceof Error ? err.message : 'Giriş yapılamadı')
     } finally {
       setBusy(false)
     }
   }
 
-  const removeProfile = async (profile: Profile) => {
-    if (!confirm(`“${profile.name}” profilini silmek istiyor musun?`)) return
+  const register = async (e: FormEvent) => {
+    e.preventDefault()
+    const id = normalizeTc(tc)
+    if (!isValidTc(id)) {
+      setError('Geçerli bir T.C. Kimlik No girin (11 hane)')
+      return
+    }
+    if (name.trim().length < 2) {
+      setError('Kullanıcı adı en az 2 karakter olmalı')
+      return
+    }
+    if (!demoMode && pin.trim().length < 6) {
+      setError('Şifre en az 6 karakter olmalı (Firebase Auth)')
+      return
+    }
     setBusy(true)
+    setError('')
     try {
-      if (demoMode) demoDeleteProfile(profile.id)
-      else await deleteProfile(profile.id)
-      refreshLocal?.()
+      if (demoMode) {
+        const profile = demoCreateProfile(id, name, color, pin.trim() || undefined)
+        refreshLocal?.()
+        completeEnter(profile)
+      } else {
+        const profile = await registerWithAuth({
+          tc: id,
+          name,
+          color,
+          password: pin.trim(),
+        })
+        completeEnter(profile)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Silinemedi')
+      setError(err instanceof Error ? err.message : 'Kayıt olunamadı')
     } finally {
       setBusy(false)
     }
@@ -131,100 +109,95 @@ export function AuthScreen() {
         <div className="brand-lockup">
           <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="brand-logo" />
           <div>
-            <p className="eyebrow">Görev Takip</p>
-            <h1>
-              {step === 'password'
-                ? 'Aile girişi'
-                : step === 'pin'
-                  ? `${pendingProfile?.name} şifresi`
-                  : 'Kim kullanıyor?'}
-            </h1>
+            <p className="eyebrow">İş Takip</p>
+            <h1>{mode === 'login' ? 'Giriş' : 'Hesap oluştur'}</h1>
           </div>
         </div>
         <p className="lead">
-          {step === 'password'
-            ? 'Sadece siz ve eşiniz — aile şifresi bir kez yeterli.'
-            : step === 'pin'
-              ? 'Bu profil kilitli. Şifreyi girerek devam et.'
-              : 'Kilitli profiller şifre ister. Diğerleri doğrudan açılır.'}
+          {mode === 'login'
+            ? 'T.C. Kimlik No ve şifrenizle güvenli giriş (Firebase Auth).'
+            : 'Kimliğiniz T.C. No’dur. Şifre Auth’ta saklanır; Firestore’da düz metin tutulmaz.'}
         </p>
 
         {demoMode && (
           <div className="banner banner-info">
-            Demo modu açık — Firebase `.env` ayarlanınca canlı senkron çalışır.
+            Demo / Firebase yapılandırması eksik — `.env` ve Firestore kurallarını kontrol edin.
           </div>
         )}
 
-        {step === 'password' ? (
-          <form onSubmit={unlock} className="stack">
+        {mode === 'login' ? (
+          <form onSubmit={login} className="stack">
             <label>
-              Aile şifresi
+              T.C. Kimlik No
+              <input
+                inputMode="numeric"
+                autoComplete="username"
+                placeholder="11 haneli"
+                value={tc}
+                onChange={(e) => setTc(normalizeTc(e.target.value))}
+                maxLength={11}
+                autoFocus
+              />
+            </label>
+            <label>
+              Şifre
               <input
                 type="password"
-                inputMode="numeric"
                 autoComplete="current-password"
-                placeholder="Aile şifresi"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
+                placeholder={demoMode ? 'Yoksa boş' : 'En az 6 karakter'}
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                required={!demoMode}
               />
             </label>
             {error && <p className="error">{error}</p>}
-            <button type="submit" className="btn primary">
-              Kilidi aç
-            </button>
-          </form>
-        ) : step === 'pin' && pendingProfile ? (
-          <form onSubmit={submitPin} className="stack">
-            <label>
-              Profil şifresi
-              <input
-                type="password"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="Şifre"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                autoFocus
-              />
-            </label>
-            {error && <p className="error">{error}</p>}
-            <button type="submit" className="btn primary">
+            <button type="submit" className="btn primary" disabled={busy}>
               Giriş yap
             </button>
             <button
               type="button"
               className="btn ghost"
               onClick={() => {
-                setStep('pick')
-                setPendingProfile(null)
-                setPinInput('')
+                setMode('register')
                 setError('')
+                setPin('')
               }}
             >
-              Geri
+              Hesap oluştur
             </button>
           </form>
-        ) : creating ? (
-          <form onSubmit={addProfile} className="stack">
+        ) : (
+          <form onSubmit={register} className="stack">
             <label>
-              Yeni profil adı
+              T.C. Kimlik No
               <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Örn. Ahmet"
+                inputMode="numeric"
+                autoComplete="username"
+                placeholder="11 haneli (benzersiz kimlik)"
+                value={tc}
+                onChange={(e) => setTc(normalizeTc(e.target.value))}
+                maxLength={11}
                 autoFocus
-                maxLength={24}
               />
             </label>
             <label>
-              Profil şifresi (isteğe bağlı)
+              Kullanıcı adı
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Örn. Ahmet Yılmaz"
+                maxLength={40}
+              />
+            </label>
+            <label>
+              Şifre {!demoMode && '(zorunlu, min. 6)'}
               <input
                 type="password"
-                inputMode="numeric"
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
-                placeholder="Boş bırakırsan şifresiz"
+                autoComplete="new-password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                placeholder="En az 6 karakter"
+                required={!demoMode}
               />
             </label>
             <div className="color-picker">
@@ -234,9 +207,9 @@ export function AuthScreen() {
                   <button
                     key={c}
                     type="button"
-                    className={`swatch ${newColor === c ? 'active' : ''}`}
+                    className={`swatch ${color === c ? 'active' : ''}`}
                     style={{ background: c }}
-                    onClick={() => setNewColor(c)}
+                    onClick={() => setColor(c)}
                     aria-label={`Renk ${c}`}
                   />
                 ))}
@@ -246,48 +219,17 @@ export function AuthScreen() {
             <button type="submit" className="btn primary" disabled={busy}>
               Kaydet ve gir
             </button>
-            <button type="button" className="btn ghost" onClick={() => setCreating(false)}>
-              Vazgeç
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setMode('login')
+                setError('')
+              }}
+            >
+              Girişe dön
             </button>
           </form>
-        ) : (
-          <div className="stack">
-            <div className="profile-pick">
-              {profiles.map((p) => (
-                <div key={p.id} className="profile-pick-wrap">
-                  <button
-                    type="button"
-                    className="profile-pick-btn"
-                    style={{ ['--pick' as string]: p.color }}
-                    disabled={busy}
-                    onClick={() => enterAs(p)}
-                  >
-                    <span className="profile-pick-avatar">{p.name.slice(0, 1)}</span>
-                    <span>
-                      {p.name}
-                      {profileNeedsPin(p) ? <span className="lock-badge">kilitli</span> : null}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="profile-delete"
-                    disabled={busy}
-                    onClick={() => removeProfile(p)}
-                    aria-label={`${p.name} sil`}
-                  >
-                    Sil
-                  </button>
-                </div>
-              ))}
-            </div>
-            {error && <p className="error">{error}</p>}
-            <button type="button" className="btn primary" onClick={() => setCreating(true)}>
-              + Profil ekle
-            </button>
-            <button type="button" className="btn ghost" onClick={logout}>
-              Çıkış
-            </button>
-          </div>
         )}
       </div>
     </div>

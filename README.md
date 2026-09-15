@@ -1,13 +1,22 @@
-# Görev Takip
+# İş Takip
 
-Aile / ev / iş görevlerini birlikte yönetmek için basit bir PWA.
+Şirket → grup → görev yapısında iş takip PWA’sı.
 
-- Aile şifresi ile giriş (Google yok)
-- Herkes kendi profilini oluşturur (ör. Gizem, Nurhat)
-- Görev yazma, durum güncelleme, not / neden
-- Gerçek zamanlı senkron (Firebase Firestore)
-- Telefona “Ana ekrana ekle” ile uygulama gibi kurulum
-- Duruma göre renkli kartlar + özet istatistikler
+- **Şirket izolasyonu:** A Şirketi B’yi görmez (ve tersi)
+- **Çoklu rol:** Aynı kişi A’da yönetici, B’de ulaştırma memuru olabilir
+- **Yönetici:** Şirketteki tüm grupları / görevleri görür; kişileri şirkete ekler ve gruplara işaretler
+- **Miad:** Tarih/saat yoksa miadsız; varsa kalan süre + miad günü geri sayım
+- **3 plan:** Reklamlı (ücretsiz) · Başlangıç (₺49/ay, kısıtlı) · Premium (₺149/ay, sınırsız)
+
+## Planlar
+
+| Plan | Fiyat | Reklam | Limitler |
+| --- | --- | --- | --- |
+| Reklamlı | Ücretsiz | Altta nazik sponsor bandı (günde 1 kez kapatılabilir) | Sınırsız |
+| Başlangıç | ₺49 / ay | Yok | Kişi başı 10 açık görev, 1 grup, 5 üye |
+| Premium | ₺149 / ay | Yok | Sınırsız |
+
+> Ödeme kapısı henüz bağlı değil; yönetici abonelik ekranından planı seçer (demo aktivasyon). Stripe vb. sonra eklenebilir.
 
 ## Hızlı başlangıç
 
@@ -16,17 +25,20 @@ npm install
 npm run dev
 ```
 
-Varsayılan aile şifresi: `123456` (`.env` içindeki `VITE_FAMILY_PASSWORD`)
+Varsayılan uygulama şifresi: `123456` (`.env` → `VITE_FAMILY_PASSWORD`)
 
-Firebase ayarlanmadan **demo modu** çalışır (veri bu cihazda kalır). Firebase bağlayınca herkes aynı görevleri canlı görür.
+Firebase yoksa **demo modu** çalışır (veri bu cihazda).
 
-## Firebase kurulumu
+## Yeni GitHub + yeni Firestore
 
-1. [Firebase Console](https://console.firebase.google.com/) üzerinde yeni proje oluşturun.
-2. **Firestore Database** ekleyin (production veya test mode).
-3. `firestore.rules` dosyasındaki kuralları yayınlayın.
-4. Project settings → Your apps → Web app ekleyin.
-5. `.env.example` dosyasını `.env` olarak kopyalayıp web config değerlerini yapıştırın:
+Bu repo’yu **yeni bir GitHub** deposuna bağlayıp **ayrı bir Firebase projesi** kullanabilirsiniz:
+
+1. [Firebase Console](https://console.firebase.google.com/) → yeni proje → Firestore
+2. `firestore.rules` dosyasını yayınlayın
+3. Web uygulaması ekleyip config’i kopyalayın
+4. `.env.example` → `.env` yapıp değerleri yapıştırın
+5. Yeni GitHub repo oluşturun ve push edin
+6. GitHub Pages / Actions ile yayınlayın (`vite` `base` ayarına dikkat)
 
 ```env
 VITE_FIREBASE_API_KEY=...
@@ -36,53 +48,18 @@ VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 VITE_FAMILY_PASSWORD=123456
-VITE_GROUP_ID=aile
 ```
 
-6. `npm run dev` ile tekrar başlatın.
-
-> Not: Bu proje aile içi kullanım içindir. Firestore kuralları açık bırakılmıştır; herkese açık internete koymadan önce kuralları sıkılaştırın.
-
-## GitHub’a yükleme
-
-```bash
-git init
-git add .
-git commit -m "Görev takip PWA uygulamasını ekle"
-git branch -M main
-git remote add origin https://github.com/nrhtdmn/gorev-takip.git
-git push -u origin main
-```
-
-## GitHub Pages ile yayınlama
-
-1. Repo **Settings → Pages**
-2. **Branch:** `gh-pages` / klasör: `/ (root)` seçip Save
-3. Her `main` push’unda Actions derleyip `gh-pages`’e yayınlar
-4. Site: https://nrhtdmn.github.io/gorev-takip/
-
-> Boş sayfa görürsen: Pages yanlışlıkla `main` kaynağını yayınlıyordur. Mutlaka `gh-pages` dalını seç.
-
-Firebase domain allowlist’e Pages URL’inizi ekleyin.
-
-## Telefona kurma (PWA)
-
-- **Android (Chrome):** Menü → Ana ekrana ekle / Uygulamayı yükle
-- **iPhone (Safari):** Paylaş → Ana Ekrana Ekle
-
-İlk girişten sonra profil tarayıcıda saklanır; her seferinde şifre sormaz (Çıkış yapmadıkça).
+Eski aile uygulamasından bağımsızdır; koleksiyonlar: `profiles`, `organizations`, `memberships`, `groups/{id}/tasks`.
 
 ## Kullanım akışı
 
-1. Aile şifresini gir
-2. Profil oluştur (isim + renk)
-3. Görev ekle (Ev / İş / Diğer)
-4. Diğer kişi görevi açıp:
-   - İşe başladım
-   - Devam ediyor
-   - Tamamladım
-   - Tamamlayamadım (+ neden, örn. “çamaşır ıslak”)
-5. Açıklama / not yaz — herkes aktivite zaman çizelgesinde görür
+1. Uygulama şifresi → profil seç
+2. Şirket seç / oluştur (kurucu = yönetici)
+3. Yönetimden kişileri şirkete ekle (rol + unvan)
+4. Grup oluştur; üyeleri işaretle
+5. Görev ekle (isteğe bağlı miad)
+6. Durum güncelle, not yaz
 
 ## Komutlar
 
@@ -91,3 +68,8 @@ Firebase domain allowlist’e Pages URL’inizi ekleyin.
 | `npm run dev` | Geliştirme sunucusu |
 | `npm run build` | Üretim derlemesi |
 | `npm run preview` | Derlenmiş sürümü önizle |
+
+## Telefona kurma (PWA)
+
+- **Android:** Menü → Ana ekrana ekle
+- **iPhone:** Paylaş → Ana Ekrana Ekle

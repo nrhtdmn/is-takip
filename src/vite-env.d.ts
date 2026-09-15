@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_FAMILY_PASSWORD: string
   readonly VITE_NURHAT_PIN: string
   readonly VITE_GROUP_ID: string
+  readonly VITE_FIREBASE_VAPID_KEY: string
 }
 
 interface ImportMeta {

@@ -1,20 +1,68 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useApp } from '../hooks/useApp'
 import { createTask } from '../lib/api'
-import { demoCreateTask } from '../lib/demoStore'
+import { demoCountOpenTasksByPerson, demoCreateTask } from '../lib/demoStore'
+import { planOf } from '../lib/plans'
+import { fromLocalInputValue } from '../lib/time'
 import type { TaskCategory } from '../types'
 import { CATEGORY_META } from '../types'
+import { DrawerShell } from './DrawerShell'
+import { MemberSearchList } from './MemberSearchList'
 
 export function NewTaskForm({ onClose }: { onClose: () => void }) {
-  const { session, demoMode, refreshLocal } = useApp()
+  const {
+    session,
+    demoMode,
+    refreshLocal,
+    currentOrg,
+    tasks,
+    groups,
+    profiles,
+    orgMemberships,
+    isOrgAdmin,
+  } = useApp()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [category, setCategory] = useState<TaskCategory>('ev')
+  const [category, setCategory] = useState<TaskCategory>('is')
+  const [dueLocal, setDueLocal] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [assignEveryone, setAssignEveryone] = useState(false)
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([])
+
+  const plan = planOf(currentOrg?.plan)
+  const currentGroup = groups.find((g) => g.id === session?.groupId)
+
+  const candidates = useMemo(() => {
+    if (!session) return [] as import('../types').Profile[]
+    if (isOrgAdmin) {
+      return orgMemberships
+        .map((m) => profiles.find((p) => p.id === m.profileId))
+        .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    }
+    const ids = new Set(currentGroup?.memberIds || [])
+    return profiles.filter((p) => ids.has(p.id))
+  }, [isOrgAdmin, orgMemberships, profiles, currentGroup, session])
+
+  const myOpenCount = useMemo(() => {
+    if (!session) return 0
+    if (demoMode && session.orgId) {
+      return demoCountOpenTasksByPerson(session.orgId, session.memberId)
+    }
+    return tasks.filter(
+      (t) => t.createdById === session.memberId && t.status !== 'completed',
+    ).length
+  }, [demoMode, session, tasks])
 
   if (!session?.groupId) return null
   const groupId = session.groupId
+
+  const toggleAssignee = (id: string) => {
+    setAssignEveryone(false)
+    setSelectedAssignees((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -22,26 +70,43 @@ export function NewTaskForm({ onClose }: { onClose: () => void }) {
       setError('Görev başlığı gerekli')
       return
     }
+    if (
+      plan.maxOpenTasksPerPerson != null &&
+      myOpenCount >= plan.maxOpenTasksPerPerson
+    ) {
+      setError(
+        `Başlangıç planında kişi başı en fazla ${plan.maxOpenTasksPerPerson} açık görev.`,
+      )
+      return
+    }
+
+    const ids = assignEveryone
+      ? candidates.map((c) => c!.id)
+      : selectedAssignees
+    const names = ids.map(
+      (id) => candidates.find((c) => c!.id === id)?.name || id,
+    )
+
+    const dueAt = fromLocalInputValue(dueLocal)
     setBusy(true)
     setError('')
     try {
+      const payload = {
+        groupId,
+        title,
+        description,
+        category,
+        member: session,
+        dueAt,
+        assigneeIds: ids,
+        assigneeNames: names,
+        assignEveryone,
+      }
       if (demoMode) {
-        demoCreateTask({
-          groupId,
-          title,
-          description,
-          category,
-          member: session,
-        })
+        demoCreateTask(payload)
         refreshLocal?.()
       } else {
-        await createTask({
-          groupId,
-          title,
-          description,
-          category,
-          member: session,
-        })
+        await createTask(payload)
       }
       onClose()
     } catch (err) {
@@ -52,25 +117,14 @@ export function NewTaskForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <header className="drawer-head">
-          <div>
-            <p className="eyebrow">Yeni görev</p>
-            <h2>Ne yapılacak?</h2>
-          </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Kapat">
-            ✕
-          </button>
-        </header>
-
-        <form onSubmit={submit} className="stack">
+    <DrawerShell onClose={onClose} eyebrow="Yeni görev" title="Ne yapılacak?">
+      <form onSubmit={submit} className="stack">
           <label>
             Başlık
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Örn. Çamaşırlar katlanacak"
+              placeholder="Örn. Sevkiyat listesi hazırlansın"
               autoFocus
               maxLength={80}
             />
@@ -79,10 +133,45 @@ export function NewTaskForm({ onClose }: { onClose: () => void }) {
           <label>
             Açıklama
             <textarea
-              rows={4}
+              rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Detay, konum, ipucu…"
+              placeholder="Detay…"
+            />
+          </label>
+
+          <div>
+            <p className="eyebrow">Kime atanacak?</p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={assignEveryone}
+                onChange={(e) => {
+                  setAssignEveryone(e.target.checked)
+                  if (e.target.checked) setSelectedAssignees([])
+                }}
+              />
+              Herkese ({candidates.length} kişi)
+            </label>
+            {!assignEveryone && (
+              <MemberSearchList
+                candidates={candidates}
+                selectedIds={selectedAssignees}
+                onToggle={toggleAssignee}
+                emptyText="Atanacak üye yok"
+              />
+            )}
+            <p className="field-hint">
+              Birkaç kişiyi işaretleyin veya herkese verin. Boş = atamasız.
+            </p>
+          </div>
+
+          <label>
+            Miad (isteğe bağlı)
+            <input
+              type="datetime-local"
+              value={dueLocal}
+              onChange={(e) => setDueLocal(e.target.value)}
             />
           </label>
 
@@ -105,7 +194,6 @@ export function NewTaskForm({ onClose }: { onClose: () => void }) {
             {busy ? 'Kaydediliyor…' : 'Görevi kaydet'}
           </button>
         </form>
-      </aside>
-    </div>
+    </DrawerShell>
   )
 }
