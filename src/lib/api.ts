@@ -227,23 +227,8 @@ export async function registerWithAuth(input: {
   const auth = getFirebaseAuth()
   const email = tcAuthEmail(id)
 
-  // Önce Cloud Function (UID=T.C.); yoksa istemci Auth + uidMap
-  try {
-    const fn = httpsCallable(getFirebaseFunctions(), 'registerWithTc')
-    await fn({
-      tc: id,
-      name: input.name.trim(),
-      color: input.color,
-      password,
-    })
-    await signInWithEmailAndPassword(auth, email, password)
-  } catch {
-    const existing = await getDoc(doc(getDb(), 'profiles', id))
-    if (existing.exists()) {
-      throw new Error('Bu T.C. Kimlik No ile kayıt zaten var — giriş yapın')
-    }
-    const cred = await createUserWithEmailAndPassword(auth, email, password)
-    await setDoc(doc(getDb(), 'uidMap', cred.user.uid), { profileId: id })
+  const writeProfileDocs = async (uid: string) => {
+    await setDoc(doc(getDb(), 'uidMap', uid), { profileId: id })
     await setDoc(doc(getDb(), 'profiles', id), {
       name: input.name.trim(),
       color: input.color,
@@ -254,12 +239,56 @@ export async function registerWithAuth(input: {
         bio: false,
         jobTitle: true,
       },
-      authUid: cred.user.uid,
+      authUid: uid,
     })
   }
 
+  // Cloud Function varsa kullan
+  try {
+    const fn = httpsCallable(getFirebaseFunctions(), 'registerWithTc')
+    await fn({
+      tc: id,
+      name: input.name.trim(),
+      color: input.color,
+      password,
+    })
+    await signInWithEmailAndPassword(auth, email, password)
+  } catch (fnErr) {
+    // Functions yok / hata → istemci Auth (giriş yapmadan profil okumaya çalışma)
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      await writeProfileDocs(cred.user.uid)
+    } catch (authErr) {
+      const code = (authErr as { code?: string })?.code || ''
+      if (code === 'auth/email-already-in-use') {
+        await signInWithEmailAndPassword(auth, email, password)
+        const uid = auth.currentUser?.uid
+        if (!uid) throw new Error('Giriş yapılamadı')
+        const profile = await getProfileById(id)
+        if (!profile) await writeProfileDocs(uid)
+      } else if (code === 'auth/operation-not-allowed') {
+        throw new Error(
+          'Firebase Authentication → Email/Password henüz açılmamış (Console).',
+        )
+      } else if (code === 'auth/weak-password') {
+        throw new Error('Şifre çok zayıf — en az 6 karakter kullanın')
+      } else if (
+        String((authErr as Error)?.message || '').includes('permission') ||
+        code === 'permission-denied'
+      ) {
+        throw new Error(
+          'Firestore izin hatası — Console’da güncel firestore.rules dosyasını Publish edin.',
+        )
+      } else {
+        const msg = authErr instanceof Error ? authErr.message : 'Kayıt olunamadı'
+        // Functions hatasını gizleme: asıl Auth hatasını göster
+        throw new Error(msg)
+      }
+    }
+  }
+
   const profile = await getProfileById(id)
-  if (!profile) throw new Error('Profil oluşturulamadı')
+  if (!profile) throw new Error('Profil oluşturulamadı — Firestore kurallarını Publish edin')
   return profile
 }
 

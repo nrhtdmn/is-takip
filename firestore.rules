@@ -51,9 +51,12 @@ service cloud.firestore {
 
     match /profiles/{profileId} {
       allow read: if signedIn();
+      // Kayıt: önce uidMap yazılır, sonra profil (authUid eşleşmeli)
       allow create: if signedIn()
-        && myProfileId() == profileId
-        && noPinField();
+        && noPinField()
+        && request.resource.data.authUid == request.auth.uid
+        && exists(/databases/$(database)/documents/uidMap/$(request.auth.uid))
+        && get(/databases/$(database)/documents/uidMap/$(request.auth.uid)).data.profileId == profileId;
       allow update: if signedIn()
         && myProfileId() == profileId
         && noPinField();
@@ -69,9 +72,10 @@ service cloud.firestore {
     }
 
     match /memberships/{membershipId} {
+      // Org üyeleri üye listesini görebilir (query: orgId == ...)
       allow read: if signedIn() && (
         resource.data.profileId == myProfileId()
-        || isOrgAdmin(resource.data.orgId)
+        || isOrgMember(resource.data.orgId)
       );
       allow create: if signedIn() && (
         (

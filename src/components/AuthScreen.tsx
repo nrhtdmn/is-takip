@@ -144,12 +144,19 @@ export function AuthScreen() {
               <input
                 type="password"
                 autoComplete="current-password"
-                placeholder={demoMode ? 'Yoksa boş' : 'En az 6 karakter'}
+                placeholder={demoMode ? 'Yoksa boş' : 'Örn. Deniz35. (en az 6 karakter)'}
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 required={!demoMode}
               />
             </label>
+            {!demoMode && (
+              <p className="muted tiny">
+                Şifre en az 6 karakter; harf, rakam, nokta kullanılabilir. Hata
+                “permissions” ise sorun şifre değil — Firestore kurallarını Publish
+                edin.
+              </p>
+            )}
             {error && <p className="error">{error}</p>}
             <button type="submit" className="btn primary" disabled={busy}>
               Giriş yap
@@ -196,10 +203,16 @@ export function AuthScreen() {
                 autoComplete="new-password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                placeholder="En az 6 karakter"
+                placeholder="Örn. Deniz35."
                 required={!demoMode}
               />
             </label>
+            {!demoMode && (
+              <p className="muted tiny">
+                Örnek geçerli şifre: <strong>Deniz35.</strong> — en az 6 karakter
+                yeter.
+              </p>
+            )}
             <div className="color-picker">
               <span>Renk</span>
               <div className="swatches">
