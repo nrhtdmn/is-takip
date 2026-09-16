@@ -31,7 +31,7 @@ import { MembersScreen } from './MembersScreen'
 import { ProfileScreen } from './ProfileScreen'
 import { DrawerShell } from './DrawerShell'
 import { MemberSearchList } from './MemberSearchList'
-import { TopNav } from './TopNav'
+import { TopNav, KebabMenu } from './TopNav'
 import {
   PendingApprovalsList,
   RejectedApprovalsList,
@@ -459,22 +459,23 @@ export function GroupScreen() {
       )}
 
       {browseGroup && (
-        <div className="group-card-actions" style={{ paddingLeft: 0, marginBottom: '0.5rem' }}>
+        <div className="browse-toolbar">
           <button
             type="button"
-            className="btn primary"
+            className="btn primary compact"
             onClick={() => openTasks(browseGroup.id, browseGroup.name)}
           >
-            Bu grubun görevleri →
+            Görevler →
           </button>
           {(isOrgAdmin || browseGroup.createdById === session.memberId) && (
-            <button
-              type="button"
-              className="btn ghost compact"
-              onClick={() => openManage(browseGroup.id)}
-            >
-              Üye düzenle
-            </button>
+            <KebabMenu
+              items={[
+                {
+                  label: 'Üye düzenle',
+                  onClick: () => openManage(browseGroup.id),
+                },
+              ]}
+            />
           )}
         </div>
       )}
@@ -507,26 +508,33 @@ export function GroupScreen() {
                 }}
               >
                 <strong>{g.name}</strong>
-                <span>
-                  {path} · %{stats.successRate} başarı · {stats.all} görev · onaylı{' '}
-                  {stats.approved}
+                <span className="group-meta">
+                  <span className="group-meta-path">{path}</span>
+                  <span className="group-meta-stats">
+                    %{stats.successRate} · {stats.all} görev · {stats.approved} onaylı
+                  </span>
                 </span>
               </button>
-              <div className="group-card-actions">
-                <button
-                  type="button"
-                  className="btn ghost compact"
-                  onClick={() => openTasks(g.id, g.name)}
-                >
-                  Görevler
-                </button>
-                <button
-                  type="button"
-                  className="btn ghost compact"
-                  onClick={() => openManage(g.id)}
-                >
-                  Üye düzenle
-                </button>
+              <div className="group-card-actions card-menu-slot">
+                <KebabMenu
+                  items={[
+                    {
+                      label: 'Görevler',
+                      onClick: () => openTasks(g.id, g.name),
+                    },
+                    {
+                      label: 'Üye düzenle',
+                      onClick: () => openManage(g.id),
+                    },
+                    {
+                      label: 'Gruba git',
+                      onClick: () => {
+                        setBrowseId(g.id)
+                        setGroupSearch('')
+                      },
+                    },
+                  ]}
+                />
               </div>
             </div>
           ))}
@@ -536,41 +544,49 @@ export function GroupScreen() {
       <div className="group-list">
         {visibleGroups.map((g) => {
           const stats = isOrgAdmin ? groupStats(g.id) : null
+          const canManage = isOrgAdmin || g.createdById === session.memberId
+          const memberNames = g.memberIds
+            .map((id) => profiles.find((p) => p.id === id)?.name || '?')
+            .slice(0, 3)
+            .join(', ')
+          const kebabItems = [
+            {
+              label: 'Görevler',
+              onClick: () => openTasks(g.id, g.name),
+            },
+            ...(canManage
+              ? [
+                  {
+                    label: 'Üye düzenle',
+                    onClick: () => openManage(g.id),
+                  },
+                ]
+              : []),
+            {
+              label: 'Alt gruplar',
+              onClick: () => setBrowseId(g.id),
+            },
+          ]
           return (
-          <div key={g.id} className="group-card">
-            <button type="button" className="group-main" onClick={() => setBrowseId(g.id)}>
-              <strong>{g.name}</strong>
-              <span>
-                {g.memberIds.length} üye · {childCount(g.id)} alt grup
-                {stats
-                  ? ` · ${stats.all} görev · %${stats.successRate} başarı · onaylı ${stats.approved}`
-                  : ''}
-                {' · '}
-                {g.memberIds
-                  .map((id) => profiles.find((p) => p.id === id)?.name || '?')
-                  .slice(0, 4)
-                  .join(', ')}
-              </span>
-            </button>
-            <div className="group-card-actions">
-              <button
-                type="button"
-                className="btn ghost compact"
-                onClick={() => openTasks(g.id, g.name)}
-              >
-                Görevler
+            <div key={g.id} className="group-card">
+              <button type="button" className="group-main" onClick={() => setBrowseId(g.id)}>
+                <strong>{g.name}</strong>
+                <span className="group-meta">
+                  <span className="group-meta-stats">
+                    {g.memberIds.length} üye · {childCount(g.id)} alt grup
+                    {stats
+                      ? ` · ${stats.all} görev · %${stats.successRate} · ${stats.approved} onaylı`
+                      : ''}
+                  </span>
+                  {memberNames ? (
+                    <span className="group-meta-people">{memberNames}</span>
+                  ) : null}
+                </span>
               </button>
-              {(isOrgAdmin || g.createdById === session.memberId) && (
-                <button
-                  type="button"
-                  className="btn ghost compact"
-                  onClick={() => openManage(g.id)}
-                >
-                  Üye düzenle
-                </button>
-              )}
+              <div className="group-card-actions card-menu-slot">
+                <KebabMenu items={kebabItems} />
+              </div>
             </div>
-          </div>
           )
         })}
         {visibleGroups.length === 0 && !groupSearch && (
