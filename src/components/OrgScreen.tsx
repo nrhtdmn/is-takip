@@ -1,11 +1,20 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useApp } from '../hooks/useApp'
-import { createOrganization, deleteOrganization } from '../lib/api'
-import { demoCreateOrganization, demoDeleteOrganization } from '../lib/demoStore'
+import {
+  createOrganization,
+  deleteOrganization,
+  renameOrganization,
+} from '../lib/api'
+import {
+  demoCreateOrganization,
+  demoDeleteOrganization,
+  demoRenameOrganization,
+} from '../lib/demoStore'
 import { PLANS } from '../lib/plans'
 import type { OrgRole } from '../types'
 import { ProfileScreen } from './ProfileScreen'
 import { DrawerShell } from './DrawerShell'
+import { KebabMenu, TopNav } from './TopNav'
 
 export function OrgScreen() {
   const {
@@ -20,6 +29,8 @@ export function OrgScreen() {
   } = useApp()
   const [creating, setCreating] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
+  const [editName, setEditName] = useState('')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -71,6 +82,31 @@ export function OrgScreen() {
     }
   }
 
+  const saveRename = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!editing) return
+    const next = editName.trim()
+    if (!next) {
+      setError('Alan adı gerekli')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      if (demoMode) demoRenameOrganization(editing.id, next)
+      else await renameOrganization(editing.id, next)
+      if (session.orgId === editing.id) {
+        setSession({ ...session, orgName: next })
+      }
+      refreshLocal?.()
+      setEditing(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ad değiştirilemedi')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const removeOrg = async (orgId: string, orgName: string) => {
     if (
       !confirm(
@@ -117,7 +153,7 @@ export function OrgScreen() {
             <h1>Alanlarınız</h1>
           </div>
         </div>
-        <div className="topbar-actions">
+        <TopNav>
           <button type="button" className="btn ghost compact" onClick={() => setProfileOpen(true)}>
             Profilim
           </button>
@@ -127,7 +163,7 @@ export function OrgScreen() {
           <button type="button" className="btn ghost compact" onClick={logout}>
             Çıkış
           </button>
-        </div>
+        </TopNav>
       </header>
 
       <p className="lead soft">
@@ -150,15 +186,25 @@ export function OrgScreen() {
               </span>
             </button>
             {role === 'admin' && (
-              <div className="group-card-actions">
-                <button
-                  type="button"
-                  className="btn danger compact"
+              <div className="group-card-actions card-menu-slot">
+                <KebabMenu
                   disabled={busy}
-                  onClick={() => removeOrg(org.id, org.name)}
-                >
-                  Alanı sil
-                </button>
+                  items={[
+                    {
+                      label: 'Düzenle',
+                      onClick: () => {
+                        setEditing({ id: org.id, name: org.name })
+                        setEditName(org.name)
+                        setError('')
+                      },
+                    },
+                    {
+                      label: 'Alanı sil',
+                      danger: true,
+                      onClick: () => removeOrg(org.id, org.name),
+                    },
+                  ]}
+                />
               </div>
             )}
           </div>
@@ -190,6 +236,29 @@ export function OrgScreen() {
             {error && <p className="error">{error}</p>}
             <button type="submit" className="btn primary" disabled={busy}>
               Oluştur (sen yönetici)
+            </button>
+          </form>
+        </DrawerShell>
+      )}
+
+      {editing && (
+        <DrawerShell
+          onClose={() => setEditing(null)}
+          eyebrow="Alan"
+          title="Alanı düzenle"
+        >
+          <form onSubmit={saveRename} className="stack">
+            <label>
+              Alan adı
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                autoFocus
+              />
+            </label>
+            {error && <p className="error">{error}</p>}
+            <button type="submit" className="btn primary" disabled={busy}>
+              Kaydet
             </button>
           </form>
         </DrawerShell>

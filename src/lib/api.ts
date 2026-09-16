@@ -648,6 +648,12 @@ export async function deleteOrganization(orgId: string) {
   await Promise.all(mems.docs.map((d) => deleteDoc(d.ref)))
 }
 
+export async function renameOrganization(orgId: string, name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Alan adı gerekli')
+  await updateDoc(orgDoc(orgId), { name: trimmed })
+}
+
 export async function setOrgPlan(input: {
   orgId: string
   plan: PlanId

@@ -31,6 +31,7 @@ import { MembersScreen } from './MembersScreen'
 import { ProfileScreen } from './ProfileScreen'
 import { DrawerShell } from './DrawerShell'
 import { MemberSearchList } from './MemberSearchList'
+import { TopNav } from './TopNav'
 import {
   PendingApprovalsList,
   RejectedApprovalsList,
@@ -416,7 +417,7 @@ export function GroupScreen() {
             <h1>{browseGroup ? 'Alt çalışma grupları' : 'Gruplar'}</h1>
           </div>
         </div>
-        <div className="topbar-actions">
+        <TopNav>
           <button type="button" className="btn ghost compact" onClick={() => setMembersOpen(true)}>
             Üyeler
           </button>
@@ -438,7 +439,7 @@ export function GroupScreen() {
           <button type="button" className="btn ghost compact" onClick={logout}>
             Çıkış
           </button>
-        </div>
+        </TopNav>
       </header>
 
       {breadcrumb.length > 0 && (
@@ -822,42 +823,47 @@ export function GroupScreen() {
               })}
             </div>
             <hr className="soft-hr" />
-            <p className="eyebrow">Tehlikeli bölge</p>
-            <button
-              type="button"
-              className="btn danger"
-              disabled={busy}
-              onClick={async () => {
-                const orgName = session.orgName || 'bu alan'
-                if (
-                  !confirm(
-                    `“${orgName}” silinsin mi?\n\nTüm gruplar, görevler ve üyeler kalıcı silinir.`,
-                  )
-                ) {
-                  return
-                }
-                const typed = prompt(`Onay için alan adını yazın: ${orgName}`)
-                if (typed?.trim() !== orgName.trim()) {
-                  setError('Alan adı eşleşmedi — silinmedi')
-                  return
-                }
-                setBusy(true)
-                setError('')
-                try {
-                  if (demoMode) demoDeleteOrganization(session.orgId!)
-                  else await deleteOrganization(session.orgId!)
-                  setAdminOpen(false)
-                  leaveOrg()
-                  refreshLocal?.()
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Alan silinemedi')
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              Bu alanı tamamen sil
-            </button>
+            <details className="danger-details">
+              <summary className="muted tiny">Tehlikeli işlemler</summary>
+              <p className="muted tiny">
+                Alanı silmek tüm grupları ve görevleri kalıcı olarak kaldırır.
+              </p>
+              <button
+                type="button"
+                className="btn ghost compact danger-text"
+                disabled={busy}
+                onClick={async () => {
+                  const orgName = session.orgName || 'bu alan'
+                  if (
+                    !confirm(
+                      `“${orgName}” silinsin mi?\n\nTüm gruplar, görevler ve üyeler kalıcı silinir.`,
+                    )
+                  ) {
+                    return
+                  }
+                  const typed = prompt(`Onay için alan adını yazın: ${orgName}`)
+                  if (typed?.trim() !== orgName.trim()) {
+                    setError('Alan adı eşleşmedi — silinmedi')
+                    return
+                  }
+                  setBusy(true)
+                  setError('')
+                  try {
+                    if (demoMode) demoDeleteOrganization(session.orgId!)
+                    else await deleteOrganization(session.orgId!)
+                    setAdminOpen(false)
+                    leaveOrg()
+                    refreshLocal?.()
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Alan silinemedi')
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                Bu alanı tamamen sil…
+              </button>
+            </details>
             {error && <p className="error">{error}</p>}
           </div>
         </DrawerShell>

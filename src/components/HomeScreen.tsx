@@ -14,6 +14,7 @@ import {
   usePendingApprovals,
   useRejectedApprovals,
 } from './PendingApprovals'
+import { TopNav } from './TopNav'
 
 export function HomeScreen() {
   const {
@@ -89,7 +90,7 @@ export function HomeScreen() {
             <h1>Merhaba, {session.memberName}</h1>
           </div>
         </div>
-        <div className="topbar-actions">
+        <TopNav>
           <button type="button" className="btn ghost compact" onClick={() => setMembersOpen(true)}>
             Üyeler
           </button>
@@ -109,7 +110,7 @@ export function HomeScreen() {
           <button type="button" className="btn ghost compact" onClick={logout}>
             Çıkış
           </button>
-        </div>
+        </TopNav>
       </header>
 
       {demoMode && (

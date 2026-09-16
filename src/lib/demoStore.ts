@@ -211,6 +211,15 @@ export function demoDeleteOrganization(orgId: string) {
   )
 }
 
+export function demoRenameOrganization(orgId: string, name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Alan adı gerekli')
+  write(
+    ORGS_KEY,
+    demoGetOrganizations().map((o) => (o.id === orgId ? { ...o, name: trimmed } : o)),
+  )
+}
+
 export function demoSetOrgPlan(orgId: string, plan: PlanId, months = 1) {
   write(
     ORGS_KEY,
