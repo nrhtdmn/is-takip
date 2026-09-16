@@ -184,6 +184,33 @@ export function demoCreateOrganization(name: string, member: Session): Organizat
   return org
 }
 
+export function demoDeleteOrganization(orgId: string) {
+  const groupIds = demoGetGroups(orgId).map((g) => g.id)
+  for (const id of [...groupIds]) {
+    // kökleri silmek yeterli; demoDeleteGroup altları da siler
+    const g = demoGetGroups().find((x) => x.id === id)
+    if (!g) continue
+    if (!g.parentId || !groupIds.includes(g.parentId)) {
+      demoDeleteGroup(id)
+    }
+  }
+  // kalan
+  for (const g of demoGetGroups(orgId)) demoDeleteGroup(g.id)
+
+  write(
+    ORGS_KEY,
+    demoGetOrganizations().filter((o) => o.id !== orgId),
+  )
+  write(
+    MEMBERS_KEY,
+    read<OrgMembership[]>(MEMBERS_KEY, []).filter((m) => m.orgId !== orgId),
+  )
+  write(
+    RECOG_KEY,
+    read<{ orgId: string }[]>(RECOG_KEY, []).filter((r) => r.orgId !== orgId),
+  )
+}
+
 export function demoSetOrgPlan(orgId: string, plan: PlanId, months = 1) {
   write(
     ORGS_KEY,

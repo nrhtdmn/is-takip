@@ -4,6 +4,7 @@ import {
   addOrgMember,
   createGroup,
   deleteGroup,
+  deleteOrganization,
   getProfileById,
   removeOrgMember,
   renameGroup,
@@ -14,6 +15,7 @@ import {
   demoAddOrgMember,
   demoCreateGroup,
   demoDeleteGroup,
+  demoDeleteOrganization,
   demoGetProfileById,
   demoRemoveOrgMember,
   demoRenameGroup,
@@ -819,6 +821,43 @@ export function GroupScreen() {
                 )
               })}
             </div>
+            <hr className="soft-hr" />
+            <p className="eyebrow">Tehlikeli bölge</p>
+            <button
+              type="button"
+              className="btn danger"
+              disabled={busy}
+              onClick={async () => {
+                const orgName = session.orgName || 'bu alan'
+                if (
+                  !confirm(
+                    `“${orgName}” silinsin mi?\n\nTüm gruplar, görevler ve üyeler kalıcı silinir.`,
+                  )
+                ) {
+                  return
+                }
+                const typed = prompt(`Onay için alan adını yazın: ${orgName}`)
+                if (typed?.trim() !== orgName.trim()) {
+                  setError('Alan adı eşleşmedi — silinmedi')
+                  return
+                }
+                setBusy(true)
+                setError('')
+                try {
+                  if (demoMode) demoDeleteOrganization(session.orgId!)
+                  else await deleteOrganization(session.orgId!)
+                  setAdminOpen(false)
+                  leaveOrg()
+                  refreshLocal?.()
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Alan silinemedi')
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Bu alanı tamamen sil
+            </button>
             {error && <p className="error">{error}</p>}
           </div>
         </DrawerShell>

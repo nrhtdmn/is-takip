@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useApp } from '../hooks/useApp'
-import { createOrganization } from '../lib/api'
-import { demoCreateOrganization } from '../lib/demoStore'
+import { createOrganization, deleteOrganization } from '../lib/api'
+import { demoCreateOrganization, demoDeleteOrganization } from '../lib/demoStore'
 import { PLANS } from '../lib/plans'
 import type { OrgRole } from '../types'
 import { ProfileScreen } from './ProfileScreen'
@@ -71,6 +71,42 @@ export function OrgScreen() {
     }
   }
 
+  const removeOrg = async (orgId: string, orgName: string) => {
+    if (
+      !confirm(
+        `“${orgName}” alanı silinsin mi?\n\nTüm gruplar, görevler ve üyelikler kalıcı olarak silinir. Bu işlem geri alınamaz.`,
+      )
+    ) {
+      return
+    }
+    const typed = prompt(`Onay için alan adını yazın: ${orgName}`)
+    if (typed?.trim() !== orgName.trim()) {
+      setError('Alan adı eşleşmedi — silinmedi')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      if (demoMode) demoDeleteOrganization(orgId)
+      else await deleteOrganization(orgId)
+      if (session.orgId === orgId) {
+        setSession({
+          ...session,
+          orgId: undefined,
+          orgName: undefined,
+          orgRole: undefined,
+          groupId: undefined,
+          groupName: undefined,
+        })
+      }
+      refreshLocal?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Alan silinemedi')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -98,6 +134,8 @@ export function OrgScreen() {
         Alan seçin. Her alan birbirinden ayrıdır — bir alandakiler diğerini görmez.
       </p>
 
+      {error && <p className="error">{error}</p>}
+
       <div className="group-list">
         {myOrgs.map(({ org, role, title }) => (
           <div key={org.id} className="group-card">
@@ -111,6 +149,18 @@ export function OrgScreen() {
                 {role === 'admin' ? 'Yönetici' : title || 'Üye'} · {PLANS[org.plan].label}
               </span>
             </button>
+            {role === 'admin' && (
+              <div className="group-card-actions">
+                <button
+                  type="button"
+                  className="btn danger compact"
+                  disabled={busy}
+                  onClick={() => removeOrg(org.id, org.name)}
+                >
+                  Alanı sil
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {myOrgs.length === 0 && (
@@ -127,21 +177,21 @@ export function OrgScreen() {
 
       {creating && (
         <DrawerShell onClose={() => setCreating(false)} eyebrow="Yeni alan" title="Alan oluştur">
-            <form onSubmit={submit} className="stack">
-              <label>
-                Alan adı
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Örn. Merkez Alan"
-                  autoFocus
-                />
-              </label>
-              {error && <p className="error">{error}</p>}
-              <button type="submit" className="btn primary" disabled={busy}>
-                Oluştur (sen yönetici)
-              </button>
-            </form>
+          <form onSubmit={submit} className="stack">
+            <label>
+              Alan adı
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Örn. Merkez Alan"
+                autoFocus
+              />
+            </label>
+            {error && <p className="error">{error}</p>}
+            <button type="submit" className="btn primary" disabled={busy}>
+              Oluştur (sen yönetici)
+            </button>
+          </form>
         </DrawerShell>
       )}
 

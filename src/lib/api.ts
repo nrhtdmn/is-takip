@@ -622,6 +622,32 @@ export async function createOrganization(input: {
   }
 }
 
+/** Yönetici: alanı, grupları, görevleri, üyelikleri siler */
+export async function deleteOrganization(orgId: string) {
+  const groupsSnap = await getDocs(query(groupsCol(), where('orgId', '==', orgId)))
+  const all = groupsSnap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<Group, 'id'>),
+  }))
+  const idSet = new Set(all.map((g) => g.id))
+  const roots = all.filter((g) => !g.parentId || !idSet.has(g.parentId))
+  for (const g of roots) {
+    await deleteGroup(g.id)
+  }
+  const left = await getDocs(query(groupsCol(), where('orgId', '==', orgId)))
+  for (const d of left.docs) {
+    await deleteGroup(d.id)
+  }
+
+  const recog = await getDocs(query(recognitionsCol(), where('orgId', '==', orgId)))
+  await Promise.all(recog.docs.map((d) => deleteDoc(d.ref)))
+
+  await deleteDoc(orgDoc(orgId))
+
+  const mems = await getDocs(query(membershipsCol(), where('orgId', '==', orgId)))
+  await Promise.all(mems.docs.map((d) => deleteDoc(d.ref)))
+}
+
 export async function setOrgPlan(input: {
   orgId: string
   plan: PlanId

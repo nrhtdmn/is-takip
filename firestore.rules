@@ -68,7 +68,7 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.createdById == myProfileId();
       allow update: if isOrgAdmin(orgId);
-      allow delete: if false;
+      allow delete: if isOrgAdmin(orgId);
     }
 
     match /memberships/{membershipId} {
