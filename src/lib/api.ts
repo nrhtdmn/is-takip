@@ -213,6 +213,64 @@ export function subscribeProfilesForIds(
   return () => unsubs.forEach((u) => u())
 }
 
+/** Auth var ama Firestore silinmişse uidMap + profili yeniden kur */
+export async function ensureFirestoreProfile(input: {
+  tc: string
+  uid: string
+  name?: string
+  color?: string
+}): Promise<Profile> {
+  const id = normalizeTc(input.tc)
+  if (!isValidTc(id)) throw new Error('Geçersiz T.C.')
+  if (!input.uid) throw new Error('Oturum yok')
+
+  await setDoc(
+    doc(getDb(), 'uidMap', input.uid),
+    { profileId: id },
+    { merge: true },
+  )
+
+  const existing = await getProfileById(id)
+  if (existing) {
+    await setDoc(
+      doc(getDb(), 'profiles', id),
+      { authUid: input.uid },
+      { merge: true },
+    )
+    return existing
+  }
+
+  const name = (input.name || `Kullanıcı ${id.slice(-4)}`).trim()
+  const color = input.color || '#1a5c4a'
+  await setDoc(doc(getDb(), 'profiles', id), {
+    name,
+    color,
+    createdAt: Date.now(),
+    visibility: {
+      email: false,
+      phone: false,
+      bio: false,
+      jobTitle: true,
+    },
+    authUid: input.uid,
+  })
+
+  const created = await getProfileById(id)
+  if (!created) {
+    throw new Error(
+      'Profil yazılamadı — Firestore kurallarını Publish ettiğinizden emin olun.',
+    )
+  }
+  return created
+}
+
+function tcFromAuthEmail(email: string | null | undefined): string | null {
+  if (!email) return null
+  const local = email.split('@')[0] || ''
+  const tc = normalizeTc(local)
+  return isValidTc(tc) ? tc : null
+}
+
 export async function registerWithAuth(input: {
   tc: string
   name: string
@@ -227,22 +285,6 @@ export async function registerWithAuth(input: {
   const auth = getFirebaseAuth()
   const email = tcAuthEmail(id)
 
-  const writeProfileDocs = async (uid: string) => {
-    await setDoc(doc(getDb(), 'uidMap', uid), { profileId: id })
-    await setDoc(doc(getDb(), 'profiles', id), {
-      name: input.name.trim(),
-      color: input.color,
-      createdAt: Date.now(),
-      visibility: {
-        email: false,
-        phone: false,
-        bio: false,
-        jobTitle: true,
-      },
-      authUid: uid,
-    })
-  }
-
   // Cloud Function varsa kullan
   try {
     const fn = httpsCallable(getFirebaseFunctions(), 'registerWithTc')
@@ -253,19 +295,27 @@ export async function registerWithAuth(input: {
       password,
     })
     await signInWithEmailAndPassword(auth, email, password)
-  } catch (fnErr) {
-    // Functions yok / hata → istemci Auth (giriş yapmadan profil okumaya çalışma)
+  } catch {
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password)
-      await writeProfileDocs(cred.user.uid)
+      await ensureFirestoreProfile({
+        tc: id,
+        uid: cred.user.uid,
+        name: input.name.trim(),
+        color: input.color,
+      })
     } catch (authErr) {
       const code = (authErr as { code?: string })?.code || ''
       if (code === 'auth/email-already-in-use') {
         await signInWithEmailAndPassword(auth, email, password)
         const uid = auth.currentUser?.uid
         if (!uid) throw new Error('Giriş yapılamadı')
-        const profile = await getProfileById(id)
-        if (!profile) await writeProfileDocs(uid)
+        await ensureFirestoreProfile({
+          tc: id,
+          uid,
+          name: input.name.trim(),
+          color: input.color,
+        })
       } else if (code === 'auth/operation-not-allowed') {
         throw new Error(
           'Firebase Authentication → Email/Password henüz açılmamış (Console).',
@@ -280,11 +330,19 @@ export async function registerWithAuth(input: {
           'Firestore izin hatası — Console’da güncel firestore.rules dosyasını Publish edin.',
         )
       } else {
-        const msg = authErr instanceof Error ? authErr.message : 'Kayıt olunamadı'
-        // Functions hatasını gizleme: asıl Auth hatasını göster
-        throw new Error(msg)
+        throw new Error(authErr instanceof Error ? authErr.message : 'Kayıt olunamadı')
       }
     }
+  }
+
+  const uid = auth.currentUser?.uid
+  if (uid) {
+    await ensureFirestoreProfile({
+      tc: id,
+      uid,
+      name: input.name.trim(),
+      color: input.color,
+    })
   }
 
   const profile = await getProfileById(id)
@@ -325,24 +383,32 @@ export async function loginWithAuth(tc: string, password: string): Promise<Profi
       } catch {
         throw new Error('Şifre hatalı veya hesap yok — kayıt olun')
       }
+    } else if (code === 'auth/operation-not-allowed') {
+      throw new Error('Firebase Authentication → Email/Password kapalı')
     } else {
       throw err instanceof Error ? err : new Error('Giriş yapılamadı')
     }
   }
 
   const user = auth.currentUser
-  if (user) {
-    // uidMap yoksa (UID=T.C. senaryosu) oluştur
-    const mapRef = doc(getDb(), 'uidMap', user.uid)
-    const mapSnap = await getDoc(mapRef)
-    if (!mapSnap.exists()) {
-      await setDoc(mapRef, { profileId: id })
-    }
-  }
+  if (!user) throw new Error('Giriş yapılamadı')
 
-  const profile = await getProfileById(id)
-  if (!profile) throw new Error('Profil bulunamadı')
-  return profile
+  // Koleksiyonlar silinmiş olsa bile Auth + T.C. ile Firestore’u onar
+  try {
+    return await ensureFirestoreProfile({
+      tc: id,
+      uid: user.uid,
+      name: user.displayName || undefined,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Profil okunamadı'
+    if (msg.includes('permission') || msg.includes('Permission')) {
+      throw new Error(
+        'Firestore izin hatası — firestore.rules dosyasını Console’da Publish edin. Koleksiyonları sildiyseniz girişte profil yeniden oluşur.',
+      )
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
 }
 
 export async function resolveProfileIdForUid(uid: string): Promise<string> {
@@ -350,6 +416,9 @@ export async function resolveProfileIdForUid(uid: string): Promise<string> {
   if (mapSnap.exists()) {
     return String((mapSnap.data() as { profileId: string }).profileId)
   }
+  const user = getFirebaseAuth().currentUser
+  const fromEmail = tcFromAuthEmail(user?.email)
+  if (fromEmail) return fromEmail
   return uid
 }
 

@@ -17,6 +17,7 @@ import {
   watchAuth,
   getProfileById,
   resolveProfileIdForUid,
+  ensureFirestoreProfile,
   type Session,
 } from '../lib/api'
 import { isFirebaseConfigured } from '../lib/firebase'
@@ -32,6 +33,7 @@ import {
   demoGetTasksForGroups,
 } from '../lib/demoStore'
 import type { Group, Organization, OrgMembership, Profile, Recognition, Task } from '../types'
+import { isValidTc, normalizeTc } from '../lib/tc'
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<Session | null>(() =>
@@ -116,8 +118,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return
       }
       try {
-        const profileId = await resolveProfileIdForUid(user.uid)
-        const profile = await getProfileById(profileId)
+        let profileId = await resolveProfileIdForUid(user.uid)
+        let profile = await getProfileById(profileId)
+        // Firestore silinmişse Auth e-postasından T.C. ile profili onar
+        if (!profile) {
+          const emailTc = normalizeTc((user.email || '').split('@')[0] || '')
+          if (isValidTc(emailTc)) {
+            profile = await ensureFirestoreProfile({
+              tc: emailTc,
+              uid: user.uid,
+              name: user.displayName || undefined,
+            })
+            profileId = profile.id
+          }
+        }
         if (!profile) {
           fullLogout()
           setSessionState(null)

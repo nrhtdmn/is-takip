@@ -43,10 +43,10 @@ service cloud.firestore {
 
     match /uidMap/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
-      allow create: if signedIn()
+      allow create, update: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.profileId is string;
-      allow update, delete: if false;
+      allow delete: if false;
     }
 
     match /profiles/{profileId} {
