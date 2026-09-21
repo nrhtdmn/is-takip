@@ -44,6 +44,7 @@ export function HomeScreen() {
 
   const plan = planOf(currentOrg?.plan)
   const currentGroup = groups.find((g) => g.id === session?.groupId)
+  const canCreateTasks = isOrgAdmin && Boolean(session?.groupId)
 
   const groupMembers = useMemo(() => {
     if (!currentGroup) return []
@@ -176,14 +177,14 @@ export function HomeScreen() {
       <section className="task-list">
         <div className="section-head">
           <h2>Görevler</h2>
-          {isOrgAdmin && !adminAll && (
+          {canCreateTasks && (
             <button type="button" className="btn primary compact" onClick={() => setCreating(true)}>
               + Yeni
             </button>
           )}
         </div>
 
-        {plan.maxOpenTasksPerPerson != null && (
+        {plan.maxOpenTasksPerPerson != null && isOrgAdmin && (
           <p className="muted tiny">
             Başlangıç planı: kişi başı en fazla {plan.maxOpenTasksPerPerson} açık görev.
           </p>
@@ -194,7 +195,7 @@ export function HomeScreen() {
           <div className="empty">
             <h3>Henüz görev yok</h3>
             <p>
-              {isOrgAdmin
+              {canCreateTasks
                 ? 'İlk görevi ekleyin — miad isterseniz tarih/saat yazın.'
                 : 'Yönetici size görev atadığında burada görünecek.'}
             </p>
@@ -208,13 +209,13 @@ export function HomeScreen() {
         </div>
       </section>
 
-      {isOrgAdmin && !adminAll && (
+      {canCreateTasks && (
         <button type="button" className="fab" onClick={() => setCreating(true)} aria-label="Yeni görev">
           +
         </button>
       )}
 
-      {creating && isOrgAdmin && <NewTaskForm onClose={() => setCreating(false)} />}
+      {creating && canCreateTasks && <NewTaskForm onClose={() => setCreating(false)} />}
       {liveSelected && (
         <TaskDetail
           task={liveSelected}

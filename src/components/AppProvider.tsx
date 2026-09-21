@@ -113,7 +113,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshLocal = () => setTick((t) => t + 1)
 
   const currentOrg = organizations.find((o) => o.id === session?.orgId)
-  const isOrgAdmin = session?.orgRole === 'admin'
+  const membershipRole = myMemberships.find((m) => m.orgId === session?.orgId)?.role
+  const isOrgAdmin =
+    membershipRole === 'admin' ||
+    (membershipRole == null && session?.orgRole === 'admin')
 
   // Firebase Auth oturumu
   useEffect(() => {
