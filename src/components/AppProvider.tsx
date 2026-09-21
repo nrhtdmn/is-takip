@@ -260,13 +260,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const u1 = subscribeOrgMemberships(session.orgId, setOrgMemberships, onError)
     const u2 = subscribeGroups(session.orgId, setGroups, onError, {
       profileId: session.memberId,
-      isAdmin: session.orgRole === 'admin',
+      isAdmin: isOrgAdmin,
     })
     return () => {
       u1()
       u2()
     }
-  }, [session?.orgId, session?.memberId, session?.orgRole, demoMode, tick])
+  }, [session?.orgId, session?.memberId, isOrgAdmin, demoMode, tick])
 
   useEffect(() => {
     if (!session?.groupId) {

@@ -897,7 +897,7 @@ export function subscribeTasks(
     )
   }
 
-  // Üye: yalnızca dahil olduğu görevler (birkaç sorguyu birleştir)
+  // Üye: yalnızca dahil olduğu görevler (orderBy yok → bileşik index şart değil)
   const profileId = opts.profileId
   const buckets = new Map<string, Map<string, Task>>()
   const emit = () => {
@@ -905,13 +905,12 @@ export function subscribeTasks(
     for (const bucket of buckets.values()) {
       for (const [id, t] of bucket) {
         const prev = merged.get(id)
-        // Aynı görev birden fazla sorguda olabilir; en güncel olanı tut
         if (!prev || (t.updatedAt || 0) >= (prev.updatedAt || 0)) {
           merged.set(id, t)
         }
       }
     }
-    onData([...merged.values()].sort((a, b) => b.createdAt - a.createdAt))
+    onData([...merged.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)))
   }
 
   const listen = (key: string, q: ReturnType<typeof query>) =>
@@ -923,49 +922,37 @@ export function subscribeTasks(
         buckets.set(key, bucket)
         emit()
       },
-      (error) => onError?.(error),
+      (error) => {
+        console.error(`[tasks:${key}]`, error)
+        // Hata olsa da diğer kovalar gelsin; boş kova yaz
+        if (!buckets.has(key)) {
+          buckets.set(key, new Map())
+          emit()
+        }
+        onError?.(error)
+      },
     )
 
   const unsubs = [
     listen(
       'viewers',
-      query(
-        tasksCol(groupId),
-        where('viewerIds', 'array-contains', profileId),
-        orderBy('createdAt', 'desc'),
-      ),
+      query(tasksCol(groupId), where('viewerIds', 'array-contains', profileId)),
     ),
     listen(
       'created',
-      query(
-        tasksCol(groupId),
-        where('createdById', '==', profileId),
-        orderBy('createdAt', 'desc'),
-      ),
+      query(tasksCol(groupId), where('createdById', '==', profileId)),
     ),
     listen(
       'assignees',
-      query(
-        tasksCol(groupId),
-        where('assigneeIds', 'array-contains', profileId),
-        orderBy('createdAt', 'desc'),
-      ),
+      query(tasksCol(groupId), where('assigneeIds', 'array-contains', profileId)),
     ),
     listen(
       'assignee',
-      query(
-        tasksCol(groupId),
-        where('assigneeId', '==', profileId),
-        orderBy('createdAt', 'desc'),
-      ),
+      query(tasksCol(groupId), where('assigneeId', '==', profileId)),
     ),
     listen(
       'everyone',
-      query(
-        tasksCol(groupId),
-        where('assignEveryone', '==', true),
-        orderBy('createdAt', 'desc'),
-      ),
+      query(tasksCol(groupId), where('assignEveryone', '==', true)),
     ),
   ]
 
