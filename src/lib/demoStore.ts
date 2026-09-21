@@ -363,6 +363,11 @@ export function demoCreateTask(input: {
   const id = createLocalId()
   const assigneeIds = input.assigneeIds || []
   const assigneeNames = input.assigneeNames || []
+  const viewerIds = new Set<string>([input.member.memberId, ...assigneeIds])
+  if (input.assignEveryone) {
+    const g = demoGetGroups().find((x) => x.id === input.groupId)
+    for (const mid of g?.memberIds || []) viewerIds.add(mid)
+  }
   const task: DemoTask = {
     id,
     groupId: input.groupId,
@@ -377,6 +382,7 @@ export function demoCreateTask(input: {
     assigneeIds,
     assigneeNames,
     assignEveryone: Boolean(input.assignEveryone),
+    viewerIds: [...viewerIds],
     ...(assigneeIds[0]
       ? { assigneeId: assigneeIds[0], assigneeName: assigneeNames[0] }
       : {}),
@@ -482,6 +488,7 @@ export function demoUpdateStatus(input: {
   task.updatedAt = now
   task.assigneeId = input.member.memberId
   task.assigneeName = input.member.memberName
+  task.viewerIds = [...new Set([...(task.viewerIds || []), input.member.memberId])]
   if (input.status === 'started' || input.status === 'in_progress') task.startedAt = now
   if (input.status === 'completed') {
     task.completedAt = now
@@ -631,17 +638,40 @@ export function demoDeleteTask(taskId: string) {
   )
 }
 
-export function demoGetTasksForGroup(groupId: string) {
+export function demoGetTasksForGroup(
+  groupId: string,
+  opts?: { profileId: string; isAdmin: boolean },
+) {
   return allDemoTasks()
     .filter((t) => t.groupId === groupId)
+    .filter((t) => demoCanSeeTask(t, opts))
     .sort((a, b) => b.createdAt - a.createdAt)
 }
 
-export function demoGetTasksForGroups(groupIds: string[]) {
+export function demoGetTasksForGroups(
+  groupIds: string[],
+  opts?: { profileId: string; isAdmin: boolean },
+) {
   const set = new Set(groupIds)
   return allDemoTasks()
     .filter((t) => set.has(t.groupId))
+    .filter((t) => demoCanSeeTask(t, opts))
     .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+function demoCanSeeTask(
+  t: DemoTask,
+  opts?: { profileId: string; isAdmin: boolean },
+) {
+  if (!opts || opts.isAdmin) return true
+  const id = opts.profileId
+  return (
+    t.createdById === id ||
+    t.assigneeId === id ||
+    Boolean(t.assigneeIds?.includes(id)) ||
+    Boolean(t.viewerIds?.includes(id)) ||
+    t.assignEveryone === true
+  )
 }
 
 export function demoCountOpenTasksByPerson(orgId: string, profileId: string) {

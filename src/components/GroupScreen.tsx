@@ -423,9 +423,11 @@ export function GroupScreen() {
           <button type="button" className="btn ghost compact" onClick={() => setMembersOpen(true)}>
             Üyeler
           </button>
-          <button type="button" className="btn ghost compact" onClick={() => setFormsOpen(true)}>
-            Kontrol formları
-          </button>
+          {isOrgAdmin && (
+            <button type="button" className="btn ghost compact" onClick={() => setFormsOpen(true)}>
+              Kontrol formları
+            </button>
+          )}
           <button type="button" className="btn ghost compact" onClick={() => setPlanOpen(true)}>
             {plan.label}
           </button>

@@ -41,11 +41,17 @@ export function TaskFormPanel({
   useEffect(() => {
     if (!session || items.length === 0) return
     if (demoMode) {
-      setAnswers(demoGetFormAnswers(task.id))
+      const all = demoGetFormAnswers(task.id)
+      setAnswers(
+        isOrgAdmin ? all : all.filter((a) => a.profileId === session.memberId),
+      )
       return
     }
-    return subscribeFormAnswers(groupId, task.id, setAnswers)
-  }, [groupId, task.id, demoMode, task.updatedAt, session, items.length])
+    return subscribeFormAnswers(groupId, task.id, setAnswers, undefined, {
+      profileId: session.memberId,
+      isAdmin: isOrgAdmin,
+    })
+  }, [groupId, task.id, demoMode, task.updatedAt, session, items.length, isOrgAdmin])
 
   useEffect(() => {
     if (!session) return

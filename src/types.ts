@@ -99,6 +99,8 @@ export interface Task {
   /** Atanan kişiler (birden fazla) */
   assigneeIds?: string[]
   assigneeNames?: string[]
+  /** Bu görevi görebilecek profil id'leri (üye sorgusu için) */
+  viewerIds?: string[]
   /** Oluşturulurken gruptaki / listedeki herkese verildi */
   assignEveryone?: boolean
   createdAt: number

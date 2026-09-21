@@ -23,6 +23,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  arrayUnion,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -809,20 +810,88 @@ export function subscribeTasks(
   groupId: string,
   onData: (tasks: Task[]) => void,
   onError?: (error: Error) => void,
+  opts?: { profileId: string; isAdmin: boolean },
 ): Unsubscribe {
-  const q = query(tasksCol(groupId), orderBy('createdAt', 'desc'))
-  return onSnapshot(
-    q,
-    (snap) => {
-      onData(
-        snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Task, 'id'>),
-        })),
-      )
-    },
-    (error) => onError?.(error),
-  )
+  const toTask = (id: string, data: unknown): Task =>
+    ({ id, ...(data as Omit<Task, 'id'>) }) as Task
+
+  // Yönetici: gruptaki tüm görevler
+  if (!opts || opts.isAdmin) {
+    const q = query(tasksCol(groupId), orderBy('createdAt', 'desc'))
+    return onSnapshot(
+      q,
+      (snap) => onData(snap.docs.map((d) => toTask(d.id, d.data()))),
+      (error) => onError?.(error),
+    )
+  }
+
+  // Üye: yalnızca dahil olduğu görevler (birkaç sorguyu birleştir)
+  const profileId = opts.profileId
+  const buckets = new Map<string, Map<string, Task>>()
+  const emit = () => {
+    const merged = new Map<string, Task>()
+    for (const bucket of buckets.values()) {
+      for (const [id, t] of bucket) merged.set(id, t)
+    }
+    onData([...merged.values()].sort((a, b) => b.createdAt - a.createdAt))
+  }
+
+  const listen = (key: string, q: ReturnType<typeof query>) =>
+    onSnapshot(
+      q,
+      (snap) => {
+        const bucket = new Map<string, Task>()
+        for (const d of snap.docs) bucket.set(d.id, toTask(d.id, d.data()))
+        buckets.set(key, bucket)
+        emit()
+      },
+      (error) => onError?.(error),
+    )
+
+  const unsubs = [
+    listen(
+      'viewers',
+      query(
+        tasksCol(groupId),
+        where('viewerIds', 'array-contains', profileId),
+        orderBy('createdAt', 'desc'),
+      ),
+    ),
+    listen(
+      'created',
+      query(
+        tasksCol(groupId),
+        where('createdById', '==', profileId),
+        orderBy('createdAt', 'desc'),
+      ),
+    ),
+    listen(
+      'assignees',
+      query(
+        tasksCol(groupId),
+        where('assigneeIds', 'array-contains', profileId),
+        orderBy('createdAt', 'desc'),
+      ),
+    ),
+    listen(
+      'assignee',
+      query(
+        tasksCol(groupId),
+        where('assigneeId', '==', profileId),
+        orderBy('createdAt', 'desc'),
+      ),
+    ),
+    listen(
+      'everyone',
+      query(
+        tasksCol(groupId),
+        where('assignEveryone', '==', true),
+        orderBy('createdAt', 'desc'),
+      ),
+    ),
+  ]
+
+  return () => unsubs.forEach((u) => u())
 }
 
 /** Yönetici: alandaki tüm grupların görevlerini topla */
@@ -830,6 +899,7 @@ export function subscribeOrgTasks(
   groupIds: string[],
   onData: (tasks: (Task & { groupId: string })[]) => void,
   onError?: (error: Error) => void,
+  opts?: { profileId: string; isAdmin: boolean },
 ): Unsubscribe {
   if (groupIds.length === 0) {
     onData([])
@@ -849,6 +919,7 @@ export function subscribeOrgTasks(
         )
       },
       onError,
+      opts,
     ),
   )
   return () => unsubs.forEach((u) => u())
@@ -900,6 +971,12 @@ export async function createTask(input: {
   const now = Date.now()
   const assigneeIds = input.assigneeIds || []
   const assigneeNames = input.assigneeNames || []
+  const viewerIds = new Set<string>([input.member.memberId, ...assigneeIds])
+  if (input.assignEveryone) {
+    const g = await getDoc(groupDoc(input.groupId))
+    const members = (g.data()?.memberIds as string[] | undefined) || []
+    for (const id of members) viewerIds.add(id)
+  }
   const payload: Record<string, unknown> = {
     title: input.title.trim(),
     description: input.description.trim(),
@@ -912,6 +989,7 @@ export async function createTask(input: {
     assigneeIds,
     assigneeNames,
     assignEveryone: Boolean(input.assignEveryone),
+    viewerIds: [...viewerIds],
   }
   if (input.dueAt) payload.dueAt = input.dueAt
   if (assigneeIds[0]) {
@@ -996,6 +1074,7 @@ export async function updateTaskStatus(input: {
     updatedAt: now,
     assigneeId: input.member.memberId,
     assigneeName: input.member.memberName,
+    viewerIds: arrayUnion(input.member.memberId),
   }
 
   if (input.status === 'started' || input.status === 'in_progress') {
@@ -1263,7 +1342,28 @@ export function subscribeFormAnswers(
   taskId: string,
   onData: (answers: TaskFormAnswer[]) => void,
   onError?: (error: Error) => void,
+  opts?: { profileId: string; isAdmin: boolean },
 ): Unsubscribe {
+  // Üye yalnızca kendi yanıtını dinler
+  if (opts && !opts.isAdmin) {
+    return onSnapshot(
+      doc(formAnswersCol(groupId, taskId), opts.profileId),
+      (snap) => {
+        if (!snap.exists()) {
+          onData([])
+          return
+        }
+        onData([
+          {
+            ...(snap.data() as TaskFormAnswer),
+            profileId: snap.id,
+          },
+        ])
+      },
+      (error) => onError?.(error),
+    )
+  }
+
   return onSnapshot(
     formAnswersCol(groupId, taskId),
     (snap) => {

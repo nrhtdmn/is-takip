@@ -274,7 +274,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     if (demoMode) {
-      setTasks(demoGetTasksForGroup(session.groupId))
+      const vis = {
+        profileId: session.memberId,
+        isAdmin: isOrgAdmin,
+      }
+      setTasks(demoGetTasksForGroup(session.groupId, vis))
       setLoading(false)
       return
     }
@@ -290,8 +294,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.error(error)
         setLoading(false)
       },
+      {
+        profileId: session.memberId,
+        isAdmin: isOrgAdmin,
+      },
     )
-  }, [session?.groupId, demoMode, tick, isOrgAdmin])
+  }, [session?.groupId, session?.memberId, demoMode, tick, isOrgAdmin])
 
   useEffect(() => {
     if (!session?.orgId) {
@@ -303,12 +311,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setOrgTasks([])
       return
     }
+    const vis = session.memberId
+      ? { profileId: session.memberId, isAdmin: isOrgAdmin }
+      : undefined
     if (demoMode) {
-      setOrgTasks(demoGetTasksForGroups(ids))
+      setOrgTasks(demoGetTasksForGroups(ids, vis))
       return
     }
-    return subscribeOrgTasks(ids, setOrgTasks, (e) => console.error(e))
-  }, [session?.orgId, groups, demoMode, tick])
+    return subscribeOrgTasks(ids, setOrgTasks, (e) => console.error(e), vis)
+  }, [session?.orgId, session?.memberId, groups, demoMode, tick, isOrgAdmin])
 
   useEffect(() => {
     if (!session?.orgId) {
@@ -323,7 +334,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [session?.orgId, demoMode, tick])
 
   useEffect(() => {
-    if (!session?.orgId) {
+    if (!session?.orgId || !isOrgAdmin) {
       setControlForms([])
       return
     }
@@ -332,7 +343,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return
     }
     return subscribeControlForms(session.orgId, setControlForms, (e) => console.error(e))
-  }, [session?.orgId, demoMode, tick])
+  }, [session?.orgId, demoMode, tick, isOrgAdmin])
 
   const value = useMemo(
     () => ({

@@ -36,6 +36,25 @@ service cloud.firestore {
       return isGroupMember(groupId) || isOrgAdmin(groupData(groupId).orgId);
     }
 
+    function taskData(groupId, taskId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/tasks/$(taskId)).data;
+    }
+
+    /** Üye yalnızca dahil olduğu görevi görür; yönetici tümünü */
+    function canReadTask(groupId, task) {
+      return isOrgAdmin(groupData(groupId).orgId)
+        || (
+          canAccessGroup(groupId)
+          && (
+            task.createdById == myProfileId()
+            || task.assigneeId == myProfileId()
+            || myProfileId() in task.get('assigneeIds', [])
+            || task.assignEveryone == true
+            || myProfileId() in task.get('viewerIds', [])
+          )
+        );
+    }
+
     function noPinField() {
       return !('pin' in request.resource.data)
         || request.resource.data.pin == null;
@@ -102,15 +121,16 @@ service cloud.firestore {
     }
 
     match /groups/{groupId}/tasks/{taskId} {
-      allow read: if isOrgMember(groupData(groupId).orgId);
+      allow read: if canReadTask(groupId, resource.data);
       allow create, update, delete: if canAccessGroup(groupId);
     }
 
     match /groups/{groupId}/tasks/{taskId}/updates/{updateId} {
-      allow read: if isOrgMember(groupData(groupId).orgId);
+      allow read: if canReadTask(groupId, taskData(groupId, taskId));
       allow create: if canAccessGroup(groupId)
         && request.resource.data.memberId == myProfileId();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if canAccessGroup(groupId);
     }
 
     match /recognitions/{id} {
@@ -121,19 +141,24 @@ service cloud.firestore {
     }
 
     match /controlForms/{id} {
-      allow read: if isOrgMember(resource.data.orgId);
+      // Şablonları yalnızca yöneticiler listeler; görevde maddeler gömülü kopya
+      allow read: if isOrgAdmin(resource.data.orgId);
       allow create: if isOrgAdmin(request.resource.data.orgId)
         && request.resource.data.createdById == myProfileId();
       allow update, delete: if isOrgAdmin(resource.data.orgId);
     }
 
     match /groups/{groupId}/tasks/{taskId}/formAnswers/{answerId} {
-      allow read: if isOrgMember(groupData(groupId).orgId);
+      allow read: if isOrgAdmin(groupData(groupId).orgId)
+        || (
+          canReadTask(groupId, taskData(groupId, taskId))
+          && answerId == myProfileId()
+        );
       allow create, update: if canAccessGroup(groupId) && (
         answerId == myProfileId()
         || isOrgAdmin(groupData(groupId).orgId)
       );
-      allow delete: if isOrgAdmin(groupData(groupId).orgId);
+      allow delete: if canAccessGroup(groupId);
     }
 
     match /pushTokens/{id} {
