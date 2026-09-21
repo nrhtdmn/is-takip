@@ -21,7 +21,6 @@ export function HomeScreen() {
     session,
     tasks,
     orgTasks,
-    profiles,
     groups,
     loading,
     demoMode,
@@ -43,15 +42,7 @@ export function HomeScreen() {
   const rejectedApprovals = useRejectedApprovals()
 
   const plan = planOf(currentOrg?.plan)
-  const currentGroup = groups.find((g) => g.id === session?.groupId)
   const canCreateTasks = isOrgAdmin && Boolean(session?.groupId)
-
-  const groupMembers = useMemo(() => {
-    if (!currentGroup) return []
-    return currentGroup.memberIds
-      .map((id) => profiles.find((p) => p.id === id))
-      .filter(Boolean)
-  }, [currentGroup, profiles])
 
   const listSource = useMemo(() => {
     if (isOrgAdmin && adminAll) {
@@ -154,25 +145,6 @@ export function HomeScreen() {
       )}
 
       <StatsBar filter={filter} onFilter={setFilter} />
-
-      <section className="members-row">
-        <div className="section-head tight">
-          <p className="eyebrow">Bu gruptakiler</p>
-          <button type="button" className="linkish" onClick={() => setMembersOpen(true)}>
-            Üyeler →
-          </button>
-        </div>
-        <div className="member-list">
-          {groupMembers.map((m) =>
-            m ? (
-              <div key={m.id} className="member-pill">
-                <span className="dot" style={{ background: m.color }} />
-                {m.name}
-              </div>
-            ) : null,
-          )}
-        </div>
-      </section>
 
       <section className="task-list">
         <div className="section-head">
