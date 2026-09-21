@@ -7,6 +7,7 @@ import {
   VAPID_KEY,
 } from './firebase'
 import type { Task } from '../types'
+import { parseNotifPayload, queueNotifOpen } from './notifNav'
 
 const PREF_KEY = 'istakip_push_pref'
 const SEEN_KEY = 'istakip_notif_seen'
@@ -28,7 +29,6 @@ function writeSeen(map: SeenMap) {
 function markSeen(key: string) {
   const map = readSeen()
   map[key] = Date.now()
-  // eski kayıtları budala
   const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000
   for (const [k, t] of Object.entries(map)) {
     if (t < cutoff) delete map[k]
@@ -38,6 +38,14 @@ function markSeen(key: string) {
 
 function wasSeen(key: string) {
   return Boolean(readSeen()[key])
+}
+
+function strData(data: Record<string, string | undefined>) {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (v != null && v !== '') out[k] = String(v)
+  }
+  return out
 }
 
 export function getPushPref(): 'unknown' | 'on' | 'off' {
@@ -59,25 +67,40 @@ export async function ensureNotificationPermission(): Promise<NotificationPermis
 
 export async function showLocalNotification(
   title: string,
-  options?: NotificationOptions,
+  options?: NotificationOptions & { data?: Record<string, string> },
 ) {
   if (typeof Notification === 'undefined') return
   if (Notification.permission !== 'granted') return
+
+  const data = strData({
+    ...(options?.data || {}),
+    notifKey: options?.data?.notifKey || (options?.tag ? String(options.tag) : undefined),
+  })
 
   const payload: NotificationOptions = {
     icon: `${import.meta.env.BASE_URL}pwa-192.png`,
     badge: `${import.meta.env.BASE_URL}pwa-192.png`,
     ...options,
+    data,
   }
 
   if ('serviceWorker' in navigator) {
-    const reg = await navigator.serviceWorker.getRegistration()
-    if (reg) {
+    try {
+      const reg = await navigator.serviceWorker.ready
       await reg.showNotification(title, payload)
       return
+    } catch {
+      /* fallback */
     }
   }
-  new Notification(title, payload)
+
+  const n = new Notification(title, payload)
+  n.onclick = () => {
+    n.close()
+    window.focus()
+    const target = parseNotifPayload({ ...data, tag: options?.tag })
+    if (target) queueNotifOpen(target)
+  }
 }
 
 export async function registerPushToken(profileId: string): Promise<string | null> {
@@ -98,15 +121,8 @@ export async function registerPushToken(profileId: string): Promise<string | nul
     return 'local'
   }
 
-  let reg = await navigator.serviceWorker.getRegistration(
-    `${import.meta.env.BASE_URL}firebase-messaging-sw.js`,
-  )
-  if (!reg) {
-    reg = await navigator.serviceWorker.register(
-      `${import.meta.env.BASE_URL}firebase-messaging-sw.js`,
-    )
-  }
-  await navigator.serviceWorker.ready
+  // Tek SW: PWA (içinde FCM + tıklama). Ayrı firebase-messaging-sw kaydı yapma.
+  const reg = await navigator.serviceWorker.ready
 
   const token = await getToken(messaging, {
     vapidKey: VAPID_KEY,
@@ -137,10 +153,21 @@ export function listenForegroundMessages(onPayload: (title: string, body: string
     const messaging = await getFirebaseMessaging()
     if (!messaging) return
     unsub = onMessage(messaging, (payload) => {
-      const title = payload.notification?.title || 'İş Takip'
-      const body = payload.notification?.body || ''
+      const data = payload.data || {}
+      const title = data.title || payload.notification?.title || 'İş Takip'
+      const body = data.body || payload.notification?.body || ''
       onPayload(title, body)
-      void showLocalNotification(title, { body, data: payload.data })
+      void showLocalNotification(title, {
+        body,
+        tag: data.notifKey,
+        data: strData({
+          groupId: data.groupId,
+          taskId: data.taskId,
+          kind: data.kind || data.type,
+          notifKey: data.notifKey,
+          type: data.kind || data.type,
+        }),
+      })
     })
   })()
   return () => unsub()
@@ -169,7 +196,12 @@ export function scanAndNotify(input: {
       void showLocalNotification('Onay bekleyen görev', {
         body: t.title,
         tag: key,
-        data: { groupId: t.groupId, taskId: t.id },
+        data: strData({
+          groupId: t.groupId || '',
+          taskId: t.id,
+          kind: 'approval',
+          notifKey: key,
+        }),
       })
     }
   }
@@ -191,7 +223,12 @@ export function scanAndNotify(input: {
       void showLocalNotification('Miad geçti', {
         body: t.title,
         tag: key,
-        data: { groupId: t.groupId, taskId: t.id },
+        data: strData({
+          groupId: t.groupId || '',
+          taskId: t.id,
+          kind: 'overdue',
+          notifKey: key,
+        }),
       })
     } else if (remain <= DAY_MS) {
       const key = `due-soon:${t.id}`
@@ -200,7 +237,12 @@ export function scanAndNotify(input: {
       void showLocalNotification('Miad yaklaşıyor', {
         body: t.title,
         tag: key,
-        data: { groupId: t.groupId, taskId: t.id },
+        data: strData({
+          groupId: t.groupId || '',
+          taskId: t.id,
+          kind: 'due-soon',
+          notifKey: key,
+        }),
       })
     }
   }

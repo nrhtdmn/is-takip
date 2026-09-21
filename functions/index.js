@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore')
 const { onRequest } = require('firebase-functions/v2/https')
+const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { setGlobalOptions } = require('firebase-functions/v2')
 const admin = require('firebase-admin')
 const Stripe = require('stripe')
@@ -8,6 +9,68 @@ const Stripe = require('stripe')
 setGlobalOptions({ region: 'europe-west1' })
 admin.initializeApp()
 const db = admin.firestore()
+
+/** GitHub Pages uygulaması — bildirim tıklanınca bu link açılır */
+const APP_ORIGIN = process.env.APP_ORIGIN || 'https://nrhtdmn.github.io/is-takip'
+
+function openTaskLink({ groupId, taskId, kind, notifKey }) {
+  const q = new URLSearchParams()
+  q.set('openTask', String(taskId))
+  if (groupId) q.set('groupId', String(groupId))
+  if (kind) q.set('kind', String(kind))
+  if (notifKey) q.set('notifKey', String(notifKey))
+  return `${APP_ORIGIN}/?${q.toString()}`
+}
+
+async function claimReceipt(key) {
+  const id = String(key).replace(/[/#]/g, '_')
+  const ref = db.collection('notificationReceipts').doc(id)
+  try {
+    const created = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref)
+      if (snap.exists) return false
+      tx.set(ref, { key, sentAt: Date.now() })
+      return true
+    })
+    return created
+  } catch {
+    return false
+  }
+}
+
+async function tokensForProfiles(profileIds) {
+  const tokens = []
+  for (const id of [...new Set((profileIds || []).filter(Boolean))]) {
+    const tok = await db.collection('pushTokens').doc(id).get()
+    const t = tok.data()?.token
+    if (t && t !== 'local') tokens.push(t)
+  }
+  return tokens
+}
+
+async function sendDataPush(tokens, { title, body, groupId, taskId, kind, notifKey }) {
+  if (!tokens.length) return
+  const link = openTaskLink({ groupId, taskId, kind, notifKey })
+  for (let i = 0; i < tokens.length; i += 500) {
+    const chunk = tokens.slice(i, i + 500)
+    await admin.messaging().sendEachForMulticast({
+      tokens: chunk,
+      data: {
+        title: String(title || 'İş Takip'),
+        body: String(body || ''),
+        groupId: String(groupId || ''),
+        taskId: String(taskId || ''),
+        kind: String(kind || ''),
+        type: String(kind || ''),
+        notifKey: String(notifKey || ''),
+      },
+      webpush: {
+        fcmOptions: { link },
+        headers: { Urgency: 'high' },
+      },
+    })
+  }
+}
 
 function isValidTc(raw) {
   const tc = String(raw || '').replace(/\D/g, '')
@@ -328,25 +391,71 @@ exports.onTaskApprovalPending = onDocumentUpdated(
       .where('role', '==', 'admin')
       .get()
 
-    const tokens = []
-    for (const m of memberships.docs) {
-      const profileId = m.data().profileId
-      const tok = await db.collection('pushTokens').doc(profileId).get()
-      if (tok.exists && tok.data()?.token) tokens.push(tok.data().token)
-    }
+    const profileIds = memberships.docs.map((m) => m.data().profileId)
+    const tokens = await tokensForProfiles(profileIds)
     if (tokens.length === 0) return
 
-    await admin.messaging().sendEachForMulticast({
-      tokens,
-      notification: {
-        title: 'Onay bekleyen görev',
-        body: after.title || 'Bir görev onay bekliyor',
-      },
-      data: {
-        groupId,
-        taskId: event.params.taskId,
-        type: 'approval',
-      },
+    const taskId = event.params.taskId
+    const notifKey = `approval:${taskId}`
+    await sendDataPush(tokens, {
+      title: 'Onay bekleyen görev',
+      body: after.title || 'Bir görev onay bekliyor',
+      groupId,
+      taskId,
+      kind: 'approval',
+      notifKey,
     })
+  },
+)
+
+/** Uygulama kapalıyken miad / gecikme push (30 dk) */
+exports.scanTaskDeadlines = onSchedule(
+  {
+    schedule: 'every 30 minutes',
+    timeZone: 'Europe/Istanbul',
+  },
+  async () => {
+    const now = Date.now()
+    const soon = now + 24 * 60 * 60 * 1000
+    const snap = await db.collectionGroup('tasks').where('dueAt', '<=', soon).get()
+
+    for (const docSnap of snap.docs) {
+      const t = docSnap.data() || {}
+      if (!t.dueAt) continue
+      if (t.status === 'completed' || t.status === 'blocked') continue
+
+      const groupId = docSnap.ref.parent.parent?.id
+      if (!groupId) continue
+      const taskId = docSnap.id
+      const kind = t.dueAt < now ? 'overdue' : 'due-soon'
+      const notifKey = `${kind}:${taskId}`
+      if (!(await claimReceipt(notifKey))) continue
+
+      const recipients = new Set()
+      if (t.assigneeId) recipients.add(t.assigneeId)
+      for (const id of t.assigneeIds || []) recipients.add(id)
+      if (t.createdById) recipients.add(t.createdById)
+
+      const groupSnap = await db.collection('groups').doc(groupId).get()
+      const orgId = groupSnap.data()?.orgId
+      if (orgId) {
+        const admins = await db
+          .collection('memberships')
+          .where('orgId', '==', orgId)
+          .where('role', '==', 'admin')
+          .get()
+        for (const m of admins.docs) recipients.add(m.data().profileId)
+      }
+
+      const tokens = await tokensForProfiles([...recipients])
+      await sendDataPush(tokens, {
+        title: kind === 'overdue' ? 'Miad geçti' : 'Miad yaklaşıyor',
+        body: t.title || 'Görev',
+        groupId,
+        taskId,
+        kind,
+        notifKey,
+      })
+    }
   },
 )

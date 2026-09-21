@@ -7,9 +7,15 @@ import {
   scanAndNotify,
   setPushPref,
 } from '../lib/notifications'
+import {
+  clearOpenFromUrl,
+  onNotifOpen,
+  peekNotifOpen,
+  type NotifOpenTarget,
+} from '../lib/notifNav'
 
 export function NotificationWatcher() {
-  const { session, orgTasks, tasks, isOrgAdmin } = useApp()
+  const { session, setSession, groups, orgTasks, tasks, isOrgAdmin } = useApp()
   const [banner, setBanner] = useState(false)
 
   useEffect(() => {
@@ -37,6 +43,36 @@ export function NotificationWatcher() {
       tasks: list,
     })
   }, [session?.memberId, isOrgAdmin, orgTasks, tasks])
+
+  // Bildirimden gelen gruba geç (görev açma HomeScreen'de)
+  useEffect(() => {
+    if (!session?.memberId || !session.orgId) return
+
+    const applyGroup = (target: NotifOpenTarget) => {
+      clearOpenFromUrl()
+      const groupId = target.groupId
+      if (!groupId || groupId === session.groupId) return
+      const g = groups.find((x) => x.id === groupId)
+      if (!g) return
+      setSession({
+        ...session,
+        groupId: g.id,
+        groupName: g.name,
+      })
+    }
+
+    const run = () => {
+      const pending = peekNotifOpen()
+      if (pending) applyGroup(pending)
+    }
+    run()
+    const unsub = onNotifOpen(applyGroup)
+    const timers = [400, 1200, 2500].map((ms) => window.setTimeout(run, ms))
+    return () => {
+      unsub()
+      timers.forEach((id) => window.clearTimeout(id))
+    }
+  }, [session, groups, setSession])
 
   if (!banner || !session) return null
 

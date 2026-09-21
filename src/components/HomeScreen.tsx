@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../hooks/useApp'
+import { consumeNotifOpen, onNotifOpen, peekNotifOpen } from '../lib/notifNav'
 import type { Task, TaskStatus } from '../types'
 import { MembersScreen } from './MembersScreen'
 import { NewTaskForm } from './NewTaskForm'
@@ -66,6 +67,39 @@ export function HomeScreen() {
       setSelected(fresh)
     }
   }, [tasks, orgTasks, adminAll, isOrgAdmin, selected])
+
+  // Bildirimden gelince ilgili görevi aç
+  useEffect(() => {
+    const tryOpen = () => {
+      const target = peekNotifOpen()
+      if (!target?.taskId) return
+      if (target.groupId && target.groupId !== session?.groupId) return
+
+      const fromOrg = orgTasks.find((t) => t.id === target.taskId)
+      const fromGroup = tasks.find((t) => t.id === target.taskId)
+      const task = fromOrg || fromGroup
+      if (!task) return
+
+      consumeNotifOpen()
+      if (target.kind === 'approval' && isOrgAdmin) {
+        setAdminAll(false)
+      }
+      setSelected(
+        fromOrg
+          ? fromOrg
+          : { ...task, groupId: target.groupId || session?.groupId },
+      )
+    }
+
+    tryOpen()
+    const unsub = onNotifOpen(() => tryOpen())
+    // Görev listesi geç gelebilir — kısa aralıklarla tekrar dene
+    const timers = [300, 800, 1600, 3200].map((ms) => window.setTimeout(tryOpen, ms))
+    return () => {
+      unsub()
+      timers.forEach((id) => window.clearTimeout(id))
+    }
+  }, [tasks, orgTasks, session?.groupId, isOrgAdmin])
 
   const liveSelected = selected
     ? (adminAll
