@@ -168,6 +168,20 @@ service cloud.firestore {
       allow read, write: if signedIn() && id == myProfileId();
     }
 
+    match /notifPrefs/{id} {
+      allow read, write: if signedIn() && id == myProfileId();
+    }
+
+    match /taskNotifPrefs/{id} {
+      allow read: if signedIn() && resource.data.profileId == myProfileId();
+      allow create: if signedIn()
+        && request.resource.data.profileId == myProfileId();
+      allow update: if signedIn()
+        && resource.data.profileId == myProfileId()
+        && request.resource.data.profileId == myProfileId();
+      allow delete: if signedIn() && resource.data.profileId == myProfileId();
+    }
+
     match /payments/{id} {
       allow read: if isOrgAdmin(resource.data.orgId);
       allow write: if false;

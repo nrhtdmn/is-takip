@@ -1,5 +1,5 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
-const { onDocumentUpdated } = require('firebase-functions/v2/firestore')
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore')
 const { onRequest } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { setGlobalOptions } = require('firebase-functions/v2')
@@ -38,6 +38,31 @@ async function claimReceipt(key) {
   }
 }
 
+async function wantsNotif(profileId, category, taskId) {
+  const prefsSnap = await db.collection('notifPrefs').doc(profileId).get()
+  const prefs = prefsSnap.data() || {}
+  if (prefs.enabled === false) return false
+
+  if (taskId) {
+    const tid = `${profileId}__${taskId}`
+    const taskSnap = await db.collection('taskNotifPrefs').doc(tid).get()
+    const override = taskSnap.data()?.categories?.[category]
+    if (override === true || override === false) return override
+  }
+
+  const cat = prefs.categories?.[category]
+  if (cat === false) return false
+  return true
+}
+
+async function filterProfilesByPref(profileIds, category, taskId) {
+  const out = []
+  for (const id of [...new Set((profileIds || []).filter(Boolean))]) {
+    if (await wantsNotif(id, category, taskId)) out.push(id)
+  }
+  return out
+}
+
 async function tokensForProfiles(profileIds) {
   const tokens = []
   for (const id of [...new Set((profileIds || []).filter(Boolean))]) {
@@ -70,6 +95,29 @@ async function sendDataPush(tokens, { title, body, groupId, taskId, kind, notifK
       },
     })
   }
+}
+
+async function notifyProfiles(profileIds, category, payload) {
+  const allowed = await filterProfilesByPref(
+    profileIds,
+    category,
+    payload.taskId,
+  )
+  const tokens = await tokensForProfiles(allowed)
+  await sendDataPush(tokens, payload)
+}
+
+function taskPeople(t) {
+  const set = new Set()
+  if (t.assigneeId) set.add(t.assigneeId)
+  for (const id of t.assigneeIds || []) set.add(id)
+  if (t.createdById) set.add(t.createdById)
+  return [...set]
+}
+
+function listDiff(before = [], after = []) {
+  const b = new Set(before)
+  return after.filter((id) => id && !b.has(id))
 }
 
 function isValidTc(raw) {
@@ -367,46 +415,146 @@ exports.stripeWebhook = onRequest({ cors: false }, async (req, res) => {
   res.json({ received: true })
 })
 
-/** Görev tamamlanınca yönetici tokenlarına onay bildirimi */
-exports.onTaskApprovalPending = onDocumentUpdated(
+/** Görev olayları: onay, atama, değişiklik, onay/red sonucu */
+exports.onTaskNotify = onDocumentUpdated(
   'groups/{groupId}/tasks/{taskId}',
   async (event) => {
     const before = event.data.before.data() || {}
     const after = event.data.after.data() || {}
+    const groupId = event.params.groupId
+    const taskId = event.params.taskId
+    const title = after.title || 'Görev'
+
+    const groupSnap = await db.collection('groups').doc(groupId).get()
+    const orgId = groupSnap.data()?.orgId
+
+    const adminIds = []
+    if (orgId) {
+      const memberships = await db
+        .collection('memberships')
+        .where('orgId', '==', orgId)
+        .where('role', '==', 'admin')
+        .get()
+      for (const m of memberships.docs) adminIds.push(m.data().profileId)
+    }
+
+    // Onay bekleyen → yöneticiler
     const becamePending =
       after.status === 'completed' &&
       after.approvalStatus === 'pending' &&
       before.approvalStatus !== 'pending'
+    if (becamePending) {
+      await notifyProfiles(adminIds, 'approvalPending', {
+        title: 'Onay bekleyen görev',
+        body: title,
+        groupId,
+        taskId,
+        kind: 'approval',
+        notifKey: `approval:${taskId}`,
+      })
+    }
 
-    if (!becamePending) return
+    // Onay / red → atananlar
+    const decided =
+      (after.approvalStatus === 'approved' || after.approvalStatus === 'rejected') &&
+      before.approvalStatus !== after.approvalStatus
+    if (decided) {
+      const people = taskPeople(after).filter((id) => !adminIds.includes(id) || true)
+      await notifyProfiles(people, 'approvalDecision', {
+        title: after.approvalStatus === 'approved' ? 'Görev onaylandı' : 'Görev reddedildi',
+        body: title,
+        groupId,
+        taskId,
+        kind: 'approval-decision',
+        notifKey: `decision:${taskId}:${after.approvalStatus}`,
+      })
+    }
 
+    // Yeni atananlar
+    const beforeAssignees = [
+      ...(before.assigneeIds || []),
+      ...(before.assigneeId ? [before.assigneeId] : []),
+    ]
+    const afterAssignees = [
+      ...(after.assigneeIds || []),
+      ...(after.assigneeId ? [after.assigneeId] : []),
+    ]
+    let newly = listDiff(beforeAssignees, afterAssignees)
+    if (after.assignEveryone && !before.assignEveryone && orgId) {
+      newly = [...new Set([...(groupSnap.data()?.memberIds || []), ...newly])]
+    }
+    if (newly.length) {
+      await notifyProfiles(newly, 'taskAssigned', {
+        title: 'Yeni görev atandı',
+        body: title,
+        groupId,
+        taskId,
+        kind: 'assigned',
+        notifKey: `assigned:${taskId}:${Date.now()}`,
+      })
+    }
+
+    // İçerik / durum / miad değişimi
+    const changed =
+      before.status !== after.status ||
+      before.title !== after.title ||
+      before.description !== after.description ||
+      before.dueAt !== after.dueAt
+    if (changed && !becamePending && !decided) {
+      const recipients = new Set([...taskPeople(after), ...adminIds])
+      await notifyProfiles([...recipients], 'taskChanges', {
+        title: 'Görev güncellendi',
+        body: title,
+        groupId,
+        taskId,
+        kind: 'task-change',
+        notifKey: `change:${taskId}:${after.updatedAt || Date.now()}`,
+      })
+    }
+  },
+)
+
+/** Yeni görev oluşturulunca atananlara */
+exports.onTaskCreatedNotify = onDocumentCreated(
+  'groups/{groupId}/tasks/{taskId}',
+  async (event) => {
+    const after = event.data?.data() || {}
     const groupId = event.params.groupId
-    const groupSnap = await db.collection('groups').doc(groupId).get()
-    const orgId = groupSnap.data()?.orgId
-    if (!orgId) return
-
-    const memberships = await db
-      .collection('memberships')
-      .where('orgId', '==', orgId)
-      .where('role', '==', 'admin')
-      .get()
-
-    const profileIds = memberships.docs.map((m) => m.data().profileId)
-    const tokens = await tokensForProfiles(profileIds)
-    if (tokens.length === 0) return
-
     const taskId = event.params.taskId
-    const notifKey = `approval:${taskId}`
-    await sendDataPush(tokens, {
-      title: 'Onay bekleyen görev',
-      body: after.title || 'Bir görev onay bekliyor',
+    const people = taskPeople(after)
+    if (!people.length && !after.assignEveryone) return
+
+    let recipients = people
+    if (after.assignEveryone) {
+      const groupSnap = await db.collection('groups').doc(groupId).get()
+      recipients = [...new Set([...(groupSnap.data()?.memberIds || []), ...people])]
+    }
+
+    await notifyProfiles(recipients, 'taskAssigned', {
+      title: 'Yeni görev atandı',
+      body: after.title || 'Görev',
       groupId,
       taskId,
-      kind: 'approval',
-      notifKey,
+      kind: 'assigned',
+      notifKey: `assigned:${taskId}`,
     })
   },
 )
+
+/** Takdir / rozet */
+exports.onRecognitionNotify = onDocumentCreated('recognitions/{id}', async (event) => {
+  const data = event.data?.data() || {}
+  const profileId = data.profileId
+  if (!profileId) return
+  await notifyProfiles([profileId], 'recognition', {
+    title: 'Takdir aldınız',
+    body: data.title || data.badge || 'Yeni takdir',
+    groupId: '',
+    taskId: '',
+    kind: 'recognition',
+    notifKey: `recognition:${event.params.id}`,
+  })
+})
 
 /** Uygulama kapalıyken miad / gecikme push (30 dk) */
 exports.scanTaskDeadlines = onSchedule(
@@ -427,15 +575,12 @@ exports.scanTaskDeadlines = onSchedule(
       const groupId = docSnap.ref.parent.parent?.id
       if (!groupId) continue
       const taskId = docSnap.id
+      const category = t.dueAt < now ? 'overdue' : 'dueSoon'
       const kind = t.dueAt < now ? 'overdue' : 'due-soon'
       const notifKey = `${kind}:${taskId}`
       if (!(await claimReceipt(notifKey))) continue
 
-      const recipients = new Set()
-      if (t.assigneeId) recipients.add(t.assigneeId)
-      for (const id of t.assigneeIds || []) recipients.add(id)
-      if (t.createdById) recipients.add(t.createdById)
-
+      const recipients = new Set(taskPeople(t))
       const groupSnap = await db.collection('groups').doc(groupId).get()
       const orgId = groupSnap.data()?.orgId
       if (orgId) {
@@ -447,8 +592,7 @@ exports.scanTaskDeadlines = onSchedule(
         for (const m of admins.docs) recipients.add(m.data().profileId)
       }
 
-      const tokens = await tokensForProfiles([...recipients])
-      await sendDataPush(tokens, {
+      await notifyProfiles([...recipients], category, {
         title: kind === 'overdue' ? 'Miad geçti' : 'Miad yaklaşıyor',
         body: t.title || 'Görev',
         groupId,

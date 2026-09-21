@@ -19,6 +19,13 @@ import type {
 } from '../types'
 import type { Session } from './api'
 import { createLocalId } from './api'
+import {
+  normalizeNotifPrefs,
+  normalizeTaskNotifPrefs,
+  taskNotifDocId,
+  type NotifPrefs,
+  type TaskNotifPrefs,
+} from './notifPrefs'
 import { DEFAULT_VISIBILITY, normalizeProfile, normalizeRecoveryAnswer } from '../types'
 import { effectivePlan } from './plans'
 import { isValidTc, normalizeTc } from './tc'
@@ -32,6 +39,8 @@ const UPDATES_KEY = 'istakip_v4_updates'
 const RECOG_KEY = 'istakip_v4_recognitions'
 const FORMS_KEY = 'istakip_v4_control_forms'
 const FORM_ANSWERS_KEY = 'istakip_v4_form_answers'
+const NOTIF_PREFS_KEY = 'istakip_demo_notif_prefs'
+const TASK_NOTIF_PREFS_KEY = 'istakip_demo_task_notif_prefs'
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -904,4 +913,47 @@ export function demoSaveFormAnswer(input: {
     createdAt: now,
   })
   write(UPDATES_KEY, updates)
+}
+
+export function demoGetNotifPrefs(profileId: string): NotifPrefs {
+  const all = read<Record<string, NotifPrefs>>(NOTIF_PREFS_KEY, {})
+  return normalizeNotifPrefs(all[profileId])
+}
+
+export function demoSaveNotifPrefs(profileId: string, prefs: NotifPrefs): NotifPrefs {
+  const next = normalizeNotifPrefs({ ...prefs, updatedAt: Date.now() })
+  const all = read<Record<string, NotifPrefs>>(NOTIF_PREFS_KEY, {})
+  all[profileId] = next
+  write(NOTIF_PREFS_KEY, all)
+  return next
+}
+
+export function demoGetTaskNotifPrefs(profileId: string, taskId: string): TaskNotifPrefs {
+  const id = taskNotifDocId(profileId, taskId)
+  const all = read<Record<string, TaskNotifPrefs>>(TASK_NOTIF_PREFS_KEY, {})
+  return normalizeTaskNotifPrefs(all[id], profileId, taskId)
+}
+
+export function demoSaveTaskNotifPrefs(input: {
+  profileId: string
+  taskId: string
+  groupId?: string
+  categories: TaskNotifPrefs['categories']
+}): TaskNotifPrefs {
+  const id = taskNotifDocId(input.profileId, input.taskId)
+  const next = normalizeTaskNotifPrefs(
+    {
+      profileId: input.profileId,
+      taskId: input.taskId,
+      groupId: input.groupId,
+      categories: input.categories,
+      updatedAt: Date.now(),
+    },
+    input.profileId,
+    input.taskId,
+  )
+  const all = read<Record<string, TaskNotifPrefs>>(TASK_NOTIF_PREFS_KEY, {})
+  all[id] = next
+  write(TASK_NOTIF_PREFS_KEY, all)
+  return next
 }

@@ -26,6 +26,7 @@ import { planOf } from '../lib/plans'
 import { isValidTc, normalizeTc } from '../lib/tc'
 import { computeGroupStats, groupPathLabel } from '../lib/stats'
 import { MembersScreen } from './MembersScreen'
+import { NotificationSettingsScreen } from './NotificationSettingsScreen'
 import { ProfileScreen } from './ProfileScreen'
 import { ControlFormsScreen } from './ControlFormsScreen'
 import { DrawerShell } from './DrawerShell'
@@ -63,6 +64,7 @@ export function GroupScreen() {
   const [formsOpen, setFormsOpen] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -433,6 +435,9 @@ export function GroupScreen() {
               {pendingApprovals.length > 0 ? ` (${pendingApprovals.length})` : ''}
             </button>
           )}
+          <button type="button" className="btn ghost compact" onClick={() => setNotifSettingsOpen(true)}>
+            Bildirimler
+          </button>
           <button type="button" className="btn ghost compact" onClick={() => setProfileOpen(true)}>
             Profilim
           </button>
@@ -893,6 +898,9 @@ export function GroupScreen() {
       {formsOpen && <ControlFormsScreen onClose={() => setFormsOpen(false)} />}
       {membersOpen && <MembersScreen scope="org" onClose={() => setMembersOpen(false)} />}
       {profileOpen && <ProfileScreen onClose={() => setProfileOpen(false)} />}
+      {notifSettingsOpen && (
+        <NotificationSettingsScreen onClose={() => setNotifSettingsOpen(false)} />
+      )}
       {approvalTask && (
         <TaskDetail
           task={

@@ -4,6 +4,7 @@ import { consumeNotifOpen, onNotifOpen, peekNotifOpen } from '../lib/notifNav'
 import type { Task, TaskStatus } from '../types'
 import { MembersScreen } from './MembersScreen'
 import { NewTaskForm } from './NewTaskForm'
+import { NotificationSettingsScreen } from './NotificationSettingsScreen'
 import { ProfileScreen } from './ProfileScreen'
 import { StatsBar } from './StatsBar'
 import { TaskCard } from './TaskCard'
@@ -33,6 +34,7 @@ export function HomeScreen() {
   const [adminAll, setAdminAll] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false)
   const [approvalsOpen, setApprovalsOpen] = useState(false)
   const [rejectedOpen, setRejectedOpen] = useState(false)
   const pendingApprovals = usePendingApprovals()
@@ -132,6 +134,9 @@ export function HomeScreen() {
           >
             {session.memberName.slice(0, 1).toUpperCase()}
           </div>
+          <button type="button" className="btn ghost compact" onClick={() => setNotifSettingsOpen(true)}>
+            Bildirimler
+          </button>
           <button type="button" className="btn ghost compact" onClick={() => setProfileOpen(true)}>
             Profilim
           </button>
@@ -235,6 +240,9 @@ export function HomeScreen() {
         />
       )}
       {profileOpen && <ProfileScreen onClose={() => setProfileOpen(false)} />}
+      {notifSettingsOpen && (
+        <NotificationSettingsScreen onClose={() => setNotifSettingsOpen(false)} />
+      )}
       {approvalsOpen && isOrgAdmin && (
         <PendingApprovalsScreen onClose={() => setApprovalsOpen(false)} mode="pending" />
       )}

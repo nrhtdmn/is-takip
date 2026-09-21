@@ -28,6 +28,14 @@ import {
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { getDb, getFirebaseAuth, getFirebaseFunctions, isFirebaseConfigured, tcAuthEmail } from './firebase'
+import {
+  defaultNotifPrefs,
+  normalizeNotifPrefs,
+  normalizeTaskNotifPrefs,
+  taskNotifDocId,
+  type NotifPrefs,
+  type TaskNotifPrefs,
+} from './notifPrefs'
 import { effectivePlan } from './plans'
 import { isValidTc, normalizeTc } from './tc'
 import type {
@@ -1527,5 +1535,154 @@ export async function startPlanCheckout(input: {
   >(getFirebaseFunctions(), 'createCheckoutSession')
   const res = await fn(input)
   return res.data
+}
+
+/* ——— Bildirim tercihleri ——— */
+
+const NOTIF_PREFS_LS = 'istakip_notif_prefs_v1'
+const TASK_NOTIF_PREFS_LS = 'istakip_task_notif_prefs_v1'
+
+function cacheNotifPrefs(profileId: string, prefs: NotifPrefs) {
+  try {
+    const all = JSON.parse(localStorage.getItem(NOTIF_PREFS_LS) || '{}') as Record<
+      string,
+      NotifPrefs
+    >
+    all[profileId] = prefs
+    localStorage.setItem(NOTIF_PREFS_LS, JSON.stringify(all))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readCachedNotifPrefs(profileId: string): NotifPrefs {
+  try {
+    const all = JSON.parse(localStorage.getItem(NOTIF_PREFS_LS) || '{}') as Record<
+      string,
+      NotifPrefs
+    >
+    return normalizeNotifPrefs(all[profileId])
+  } catch {
+    return defaultNotifPrefs()
+  }
+}
+
+function cacheTaskNotifPrefs(docId: string, prefs: TaskNotifPrefs) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TASK_NOTIF_PREFS_LS) || '{}') as Record<
+      string,
+      TaskNotifPrefs
+    >
+    all[docId] = prefs
+    localStorage.setItem(TASK_NOTIF_PREFS_LS, JSON.stringify(all))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readCachedTaskNotifPrefs(
+  profileId: string,
+  taskId: string,
+): TaskNotifPrefs {
+  const id = taskNotifDocId(profileId, taskId)
+  try {
+    const all = JSON.parse(localStorage.getItem(TASK_NOTIF_PREFS_LS) || '{}') as Record<
+      string,
+      TaskNotifPrefs
+    >
+    return normalizeTaskNotifPrefs(all[id], profileId, taskId)
+  } catch {
+    return normalizeTaskNotifPrefs(null, profileId, taskId)
+  }
+}
+
+export function subscribeNotifPrefs(
+  profileId: string,
+  onData: (prefs: NotifPrefs) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    doc(getDb(), 'notifPrefs', profileId),
+    (snap) => {
+      const prefs = normalizeNotifPrefs(snap.exists() ? snap.data() : null)
+      cacheNotifPrefs(profileId, prefs)
+      onData(prefs)
+    },
+    (error) => onError?.(error),
+  )
+}
+
+export async function saveNotifPrefs(
+  profileId: string,
+  prefs: NotifPrefs,
+): Promise<NotifPrefs> {
+  const next = normalizeNotifPrefs({ ...prefs, updatedAt: Date.now() })
+  cacheNotifPrefs(profileId, next)
+  await setDoc(
+    doc(getDb(), 'notifPrefs', profileId),
+    {
+      profileId,
+      enabled: next.enabled,
+      categories: next.categories,
+      updatedAt: next.updatedAt,
+    },
+    { merge: true },
+  )
+  return next
+}
+
+export function subscribeTaskNotifPrefs(
+  profileId: string,
+  taskId: string,
+  onData: (prefs: TaskNotifPrefs) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const id = taskNotifDocId(profileId, taskId)
+  return onSnapshot(
+    doc(getDb(), 'taskNotifPrefs', id),
+    (snap) => {
+      const prefs = normalizeTaskNotifPrefs(
+        snap.exists() ? snap.data() : null,
+        profileId,
+        taskId,
+      )
+      cacheTaskNotifPrefs(id, prefs)
+      onData(prefs)
+    },
+    (error) => onError?.(error),
+  )
+}
+
+export async function saveTaskNotifPrefs(input: {
+  profileId: string
+  taskId: string
+  groupId?: string
+  categories: TaskNotifPrefs['categories']
+}): Promise<TaskNotifPrefs> {
+  const id = taskNotifDocId(input.profileId, input.taskId)
+  const next = normalizeTaskNotifPrefs(
+    {
+      profileId: input.profileId,
+      taskId: input.taskId,
+      groupId: input.groupId,
+      categories: input.categories,
+      updatedAt: Date.now(),
+    },
+    input.profileId,
+    input.taskId,
+  )
+  cacheTaskNotifPrefs(id, next)
+  await setDoc(
+    doc(getDb(), 'taskNotifPrefs', id),
+    {
+      profileId: next.profileId,
+      taskId: next.taskId,
+      groupId: next.groupId || null,
+      categories: next.categories,
+      updatedAt: next.updatedAt,
+    },
+    { merge: true },
+  )
+  return next
 }
 

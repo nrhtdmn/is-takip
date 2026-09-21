@@ -6,6 +6,11 @@ import {
   isFirebaseConfigured,
   VAPID_KEY,
 } from './firebase'
+import {
+  readCachedNotifPrefs,
+  readCachedTaskNotifPrefs,
+} from './api'
+import { isNotifCategoryEnabled, type NotifCategory } from './notifPrefs'
 import type { Task } from '../types'
 import { parseNotifPayload, queueNotifOpen } from './notifNav'
 
@@ -46,6 +51,18 @@ function strData(data: Record<string, string | undefined>) {
     if (v != null && v !== '') out[k] = String(v)
   }
   return out
+}
+
+function wantsLocal(
+  profileId: string,
+  category: NotifCategory,
+  taskId?: string,
+): boolean {
+  const prefs = readCachedNotifPrefs(profileId)
+  const override = taskId
+    ? readCachedTaskNotifPrefs(profileId, taskId).categories
+    : null
+  return isNotifCategoryEnabled(prefs, category, override)
 }
 
 export function getPushPref(): 'unknown' | 'on' | 'off' {
@@ -121,7 +138,6 @@ export async function registerPushToken(profileId: string): Promise<string | nul
     return 'local'
   }
 
-  // Tek SW: PWA (içinde FCM + tıklama). Ayrı firebase-messaging-sw kaydı yapma.
   const reg = await navigator.serviceWorker.ready
 
   const token = await getToken(messaging, {
@@ -192,6 +208,10 @@ export function scanAndNotify(input: {
     for (const t of pending) {
       const key = `approval:${t.id}`
       if (wasSeen(key)) continue
+      if (!wantsLocal(profileId, 'approvalPending', t.id)) {
+        markSeen(key)
+        continue
+      }
       markSeen(key)
       void showLocalNotification('Onay bekleyen görev', {
         body: t.title,
@@ -219,6 +239,10 @@ export function scanAndNotify(input: {
     if (remain < 0) {
       const key = `overdue:${t.id}`
       if (wasSeen(key)) continue
+      if (!wantsLocal(profileId, 'overdue', t.id)) {
+        markSeen(key)
+        continue
+      }
       markSeen(key)
       void showLocalNotification('Miad geçti', {
         body: t.title,
@@ -233,6 +257,10 @@ export function scanAndNotify(input: {
     } else if (remain <= DAY_MS) {
       const key = `due-soon:${t.id}`
       if (wasSeen(key)) continue
+      if (!wantsLocal(profileId, 'dueSoon', t.id)) {
+        markSeen(key)
+        continue
+      }
       markSeen(key)
       void showLocalNotification('Miad yaklaşıyor', {
         body: t.title,

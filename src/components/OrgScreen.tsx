@@ -11,6 +11,7 @@ import {
   demoRenameOrganization,
 } from '../lib/demoStore'
 import type { OrgRole } from '../types'
+import { NotificationSettingsScreen } from './NotificationSettingsScreen'
 import { ProfileScreen } from './ProfileScreen'
 import { DrawerShell } from './DrawerShell'
 import { KebabMenu, TopNav } from './TopNav'
@@ -28,6 +29,7 @@ export function OrgScreen() {
   } = useApp()
   const [creating, setCreating] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false)
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
   const [editName, setEditName] = useState('')
   const [name, setName] = useState('')
@@ -153,6 +155,9 @@ export function OrgScreen() {
           </div>
         </div>
         <TopNav>
+          <button type="button" className="btn ghost compact" onClick={() => setNotifSettingsOpen(true)}>
+            Bildirimler
+          </button>
           <button type="button" className="btn ghost compact" onClick={() => setProfileOpen(true)}>
             Profilim
           </button>
@@ -264,6 +269,9 @@ export function OrgScreen() {
       )}
 
       {profileOpen && <ProfileScreen onClose={() => setProfileOpen(false)} />}
+      {notifSettingsOpen && (
+        <NotificationSettingsScreen onClose={() => setNotifSettingsOpen(false)} />
+      )}
     </div>
   )
 }

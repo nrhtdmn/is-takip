@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../hooks/useApp'
+import { subscribeNotifPrefs } from '../lib/api'
 import {
   getPushPref,
   listenForegroundMessages,
@@ -15,7 +16,7 @@ import {
 } from '../lib/notifNav'
 
 export function NotificationWatcher() {
-  const { session, setSession, groups, orgTasks, tasks, isOrgAdmin } = useApp()
+  const { session, setSession, groups, orgTasks, tasks, isOrgAdmin, demoMode } = useApp()
   const [banner, setBanner] = useState(false)
 
   useEffect(() => {
@@ -28,8 +29,15 @@ export function NotificationWatcher() {
     if (pref === 'on' || Notification.permission === 'granted') {
       void registerPushToken(session.memberId)
     }
-    return listenForegroundMessages(() => {})
-  }, [session?.memberId])
+    const unsubMsg = listenForegroundMessages(() => {})
+    const unsubPrefs = demoMode
+      ? () => {}
+      : subscribeNotifPrefs(session.memberId, () => {})
+    return () => {
+      unsubMsg()
+      unsubPrefs()
+    }
+  }, [session?.memberId, demoMode])
 
   useEffect(() => {
     if (!session?.memberId) return
