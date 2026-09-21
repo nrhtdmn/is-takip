@@ -1041,10 +1041,16 @@ export async function updateTask(input: {
   description: string
   category: TaskCategory
   dueAt?: number | null
+  assigneeIds?: string[]
+  assigneeNames?: string[]
+  assignEveryone?: boolean
 }) {
   const now = Date.now()
   const title = input.title.trim()
   if (!title) throw new Error('Görev başlığı gerekli')
+  const existingSnap = await getDoc(taskDoc(input.groupId, input.taskId))
+  const existing = existingSnap.data() as Record<string, unknown> | undefined
+
   const patch: Record<string, unknown> = {
     title,
     description: input.description.trim(),
@@ -1054,14 +1060,44 @@ export async function updateTask(input: {
   if (input.dueAt) patch.dueAt = input.dueAt
   else patch.dueAt = null
 
+  let whoBit = ''
+  if (input.assigneeIds) {
+    const assigneeIds = input.assigneeIds
+    const assigneeNames = input.assigneeNames || []
+    const viewerIds = new Set<string>()
+    const createdBy = existing?.createdById
+    if (typeof createdBy === 'string') viewerIds.add(createdBy)
+    viewerIds.add(input.member.memberId)
+    for (const id of assigneeIds) viewerIds.add(id)
+    if (input.assignEveryone) {
+      const g = await getDoc(groupDoc(input.groupId))
+      const members = (g.data()?.memberIds as string[] | undefined) || []
+      for (const id of members) viewerIds.add(id)
+    }
+    patch.assigneeIds = assigneeIds
+    patch.assigneeNames = assigneeNames
+    patch.assignEveryone = Boolean(input.assignEveryone)
+    patch.viewerIds = [...viewerIds]
+    if (assigneeIds[0]) {
+      patch.assigneeId = assigneeIds[0]
+      patch.assigneeName = assigneeNames[0] || null
+    } else {
+      patch.assigneeId = null
+      patch.assigneeName = null
+    }
+    if (input.assignEveryone) whoBit = ' · Atama: Herkese'
+    else if (assigneeNames.length) whoBit = ` · Atanan: ${assigneeNames.join(', ')}`
+    else whoBit = ' · Atama kaldırıldı'
+  }
+
   await updateDoc(taskDoc(input.groupId, input.taskId), patch)
   await addUpdate(input.groupId, input.taskId, {
     memberId: input.member.memberId,
     memberName: input.member.memberName,
     type: 'edit',
     message: input.dueAt
-      ? `Görev düzenlendi · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}`
-      : 'Görev düzenlendi',
+      ? `Görev düzenlendi · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}${whoBit}`
+      : `Görev düzenlendi${whoBit}`,
     createdAt: now,
   })
 }

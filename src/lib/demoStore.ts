@@ -432,6 +432,9 @@ export function demoUpdateTask(input: {
   description: string
   category: TaskCategory
   dueAt?: number | null
+  assigneeIds?: string[]
+  assigneeNames?: string[]
+  assignEveryone?: boolean
 }) {
   const title = input.title.trim()
   if (!title) throw new Error('Görev başlığı gerekli')
@@ -439,8 +442,9 @@ export function demoUpdateTask(input: {
   const tasks = allDemoTasks()
   const idx = tasks.findIndex((t) => t.id === input.taskId)
   if (idx < 0) throw new Error('Görev bulunamadı')
-  const next = {
-    ...tasks[idx],
+  const prev = tasks[idx]
+  const next: DemoTask = {
+    ...prev,
     title,
     description: input.description.trim(),
     category: input.category,
@@ -448,6 +452,32 @@ export function demoUpdateTask(input: {
     dueAt: input.dueAt || undefined,
   }
   if (!input.dueAt) delete next.dueAt
+
+  let whoBit = ''
+  if (input.assigneeIds) {
+    const assigneeIds = input.assigneeIds
+    const assigneeNames = input.assigneeNames || []
+    const viewerIds = new Set<string>([prev.createdById, input.member.memberId, ...assigneeIds])
+    if (input.assignEveryone) {
+      const g = demoGetGroups().find((x) => x.id === input.groupId)
+      for (const mid of g?.memberIds || []) viewerIds.add(mid)
+    }
+    next.assigneeIds = assigneeIds
+    next.assigneeNames = assigneeNames
+    next.assignEveryone = Boolean(input.assignEveryone)
+    next.viewerIds = [...viewerIds]
+    if (assigneeIds[0]) {
+      next.assigneeId = assigneeIds[0]
+      next.assigneeName = assigneeNames[0]
+    } else {
+      delete next.assigneeId
+      delete next.assigneeName
+    }
+    if (input.assignEveryone) whoBit = ' · Atama: Herkese'
+    else if (assigneeNames.length) whoBit = ` · Atanan: ${assigneeNames.join(', ')}`
+    else whoBit = ' · Atama kaldırıldı'
+  }
+
   tasks[idx] = next
   write(TASKS_KEY, tasks)
 
@@ -459,8 +489,8 @@ export function demoUpdateTask(input: {
     memberName: input.member.memberName,
     type: 'edit',
     message: input.dueAt
-      ? `Görev düzenlendi · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}`
-      : 'Görev düzenlendi',
+      ? `Görev düzenlendi · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}${whoBit}`
+      : `Görev düzenlendi${whoBit}`,
     createdAt: now,
   })
   write(UPDATES_KEY, updates)

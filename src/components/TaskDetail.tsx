@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useApp } from '../hooks/useApp'
 import {
   addTaskNote,
@@ -17,10 +17,11 @@ import {
   demoUpdateTask,
 } from '../lib/demoStore'
 import { formatDue, formatWhen, toLocalInputValue, fromLocalInputValue } from '../lib/time'
-import type { Task, TaskCategory, TaskStatus, TaskUpdate } from '../types'
+import type { Profile, Task, TaskCategory, TaskStatus, TaskUpdate } from '../types'
 import { CATEGORY_META, STATUS_META } from '../types'
 import { DeadlineBadge } from './DeadlineBadge'
 import { DrawerPortal } from './DrawerShell'
+import { MemberSearchList } from './MemberSearchList'
 import { TaskFormPanel } from './TaskFormPanel'
 
 const ACTIONS: { status: TaskStatus; label: string }[] = [
@@ -42,7 +43,8 @@ export function TaskDetail({
   onDeleted?: () => void
   groupIdOverride?: string
 }) {
-  const { session, demoMode, refreshLocal, isOrgAdmin, myMemberships } = useApp()
+  const { session, demoMode, refreshLocal, isOrgAdmin, myMemberships, profiles, groups, orgMemberships } =
+    useApp()
   const [updates, setUpdates] = useState<TaskUpdate[]>([])
   const [note, setNote] = useState('')
   const [failReason, setFailReason] = useState('')
@@ -55,12 +57,30 @@ export function TaskDetail({
   const [editDesc, setEditDesc] = useState(task.description)
   const [editCategory, setEditCategory] = useState<TaskCategory>(task.category)
   const [editDue, setEditDue] = useState(toLocalInputValue(task.dueAt))
+  const [editAssignees, setEditAssignees] = useState<string[]>(
+    () => task.assigneeIds?.slice() || (task.assigneeId ? [task.assigneeId] : []),
+  )
+  const [editAssignEveryone, setEditAssignEveryone] = useState(
+    () => Boolean(task.assignEveryone),
+  )
   /** Anlık durum — abonelik gecikse bile etiket güncellenir */
   const [localStatus, setLocalStatus] = useState<TaskStatus>(task.status)
   const [localApproval, setLocalApproval] = useState(task.approvalStatus)
   const [localFailReason, setLocalFailReason] = useState(task.failReason)
 
   const groupId = groupIdOverride || session?.groupId
+  const taskGroup = groups.find((g) => g.id === groupId)
+
+  const assigneeCandidates = useMemo(() => {
+    if (!session) return [] as Profile[]
+    if (isOrgAdmin) {
+      return orgMemberships
+        .map((m) => profiles.find((p) => p.id === m.profileId))
+        .filter((p): p is Profile => Boolean(p))
+    }
+    const ids = new Set(taskGroup?.memberIds || [])
+    return profiles.filter((p) => ids.has(p.id))
+  }, [session, isOrgAdmin, orgMemberships, profiles, taskGroup])
 
   useEffect(() => {
     setLocalStatus(task.status)
@@ -70,6 +90,12 @@ export function TaskDetail({
     setEditDesc(task.description)
     setEditCategory(task.category)
     setEditDue(toLocalInputValue(task.dueAt))
+    if (!editing) {
+      setEditAssignees(
+        task.assigneeIds?.slice() || (task.assigneeId ? [task.assigneeId] : []),
+      )
+      setEditAssignEveryone(Boolean(task.assignEveryone))
+    }
   }, [
     task.id,
     task.status,
@@ -79,7 +105,26 @@ export function TaskDetail({
     task.description,
     task.category,
     task.dueAt,
+    task.assigneeIds,
+    task.assigneeId,
+    task.assignEveryone,
+    editing,
   ])
+
+  const startEditing = () => {
+    setEditAssignees(
+      task.assigneeIds?.slice() || (task.assigneeId ? [task.assigneeId] : []),
+    )
+    setEditAssignEveryone(Boolean(task.assignEveryone))
+    setEditing(true)
+  }
+
+  const toggleEditAssignee = (id: string) => {
+    setEditAssignEveryone(false)
+    setEditAssignees((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
 
   useEffect(() => {
     if (!groupId) return
@@ -147,6 +192,12 @@ export function TaskDetail({
     setError('')
     try {
       const dueAt = fromLocalInputValue(editDue) ?? null
+      const ids = editAssignEveryone
+        ? assigneeCandidates.map((c) => c.id)
+        : editAssignees
+      const names = ids.map(
+        (id) => assigneeCandidates.find((c) => c.id === id)?.name || id,
+      )
       const payload = {
         groupId,
         taskId: task.id,
@@ -155,6 +206,9 @@ export function TaskDetail({
         description: editDesc,
         category: editCategory,
         dueAt,
+        assigneeIds: ids,
+        assigneeNames: names,
+        assignEveryone: editAssignEveryone,
       }
       if (demoMode) {
         demoUpdateTask(payload)
@@ -369,7 +423,7 @@ export function TaskDetail({
                     <button
                       type="button"
                       className="btn ghost compact"
-                      onClick={() => setEditing(true)}
+                      onClick={startEditing}
                     >
                       Düzenle
                     </button>
@@ -393,6 +447,28 @@ export function TaskDetail({
                         onChange={(e) => setEditDesc(e.target.value)}
                       />
                     </label>
+                    <div>
+                      <p className="eyebrow">Kime atanacak?</p>
+                      <label className="check-row">
+                        <input
+                          type="checkbox"
+                          checked={editAssignEveryone}
+                          onChange={(e) => {
+                            setEditAssignEveryone(e.target.checked)
+                            if (e.target.checked) setEditAssignees([])
+                          }}
+                        />
+                        Herkese ({assigneeCandidates.length} kişi)
+                      </label>
+                      {!editAssignEveryone && (
+                        <MemberSearchList
+                          candidates={assigneeCandidates}
+                          selectedIds={editAssignees}
+                          onToggle={toggleEditAssignee}
+                          emptyText="Atanacak üye yok"
+                        />
+                      )}
+                    </div>
                     <label>
                       Kategori
                       <select
