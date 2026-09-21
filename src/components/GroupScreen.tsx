@@ -417,9 +417,11 @@ export function GroupScreen() {
           </div>
         </div>
         <TopNav>
-          <button type="button" className="btn ghost compact" onClick={() => setMembersOpen(true)}>
-            Üyeler
-          </button>
+          {isOrgAdmin && (
+            <button type="button" className="btn ghost compact" onClick={() => setMembersOpen(true)}>
+              Üyeler
+            </button>
+          )}
           {isOrgAdmin && (
             <button type="button" className="btn ghost compact" onClick={() => setFormsOpen(true)}>
               Kontrol formları
@@ -546,10 +548,12 @@ export function GroupScreen() {
         {visibleGroups.map((g) => {
           const stats = isOrgAdmin ? groupStats(g.id) : null
           const canManage = isOrgAdmin || g.createdById === session.memberId
-          const memberNames = g.memberIds
-            .map((id) => profiles.find((p) => p.id === id)?.name || '?')
-            .slice(0, 3)
-            .join(', ')
+          const memberNames = isOrgAdmin
+            ? g.memberIds
+                .map((id) => profiles.find((p) => p.id === id)?.name || '?')
+                .slice(0, 3)
+                .join(', ')
+            : ''
           const kebabItems = [
             {
               label: 'Görevler',
