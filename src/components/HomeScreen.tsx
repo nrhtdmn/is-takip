@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../hooks/useApp'
 import { planOf } from '../lib/plans'
 import type { Task, TaskStatus } from '../types'
@@ -61,6 +61,16 @@ export function HomeScreen() {
     if (filter === 'all') return listSource
     return listSource.filter((t) => t.status === filter)
   }, [listSource, filter])
+
+  // Açık görev detayını güncel listeyle senkron tut
+  useEffect(() => {
+    if (!selected) return
+    const source = isOrgAdmin && adminAll ? orgTasks : tasks
+    const fresh = source.find((t) => t.id === selected.id)
+    if (fresh && fresh.updatedAt !== selected.updatedAt) {
+      setSelected(fresh)
+    }
+  }, [tasks, orgTasks, adminAll, isOrgAdmin, selected])
 
   const liveSelected = selected
     ? (adminAll

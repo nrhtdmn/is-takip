@@ -831,7 +831,13 @@ export function subscribeTasks(
   const emit = () => {
     const merged = new Map<string, Task>()
     for (const bucket of buckets.values()) {
-      for (const [id, t] of bucket) merged.set(id, t)
+      for (const [id, t] of bucket) {
+        const prev = merged.get(id)
+        // Aynı görev birden fazla sorguda olabilir; en güncel olanı tut
+        if (!prev || (t.updatedAt || 0) >= (prev.updatedAt || 0)) {
+          merged.set(id, t)
+        }
+      }
     }
     onData([...merged.values()].sort((a, b) => b.createdAt - a.createdAt))
   }
@@ -1075,6 +1081,7 @@ export async function updateTaskStatus(input: {
     assigneeId: input.member.memberId,
     assigneeName: input.member.memberName,
     viewerIds: arrayUnion(input.member.memberId),
+    assigneeIds: arrayUnion(input.member.memberId),
   }
 
   if (input.status === 'started' || input.status === 'in_progress') {

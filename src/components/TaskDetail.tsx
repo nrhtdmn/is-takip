@@ -55,15 +55,31 @@ export function TaskDetail({
   const [editDesc, setEditDesc] = useState(task.description)
   const [editCategory, setEditCategory] = useState<TaskCategory>(task.category)
   const [editDue, setEditDue] = useState(toLocalInputValue(task.dueAt))
+  /** Anlık durum — abonelik gecikse bile etiket güncellenir */
+  const [localStatus, setLocalStatus] = useState<TaskStatus>(task.status)
+  const [localApproval, setLocalApproval] = useState(task.approvalStatus)
+  const [localFailReason, setLocalFailReason] = useState(task.failReason)
 
   const groupId = groupIdOverride || session?.groupId
 
   useEffect(() => {
+    setLocalStatus(task.status)
+    setLocalApproval(task.approvalStatus)
+    setLocalFailReason(task.failReason)
     setEditTitle(task.title)
     setEditDesc(task.description)
     setEditCategory(task.category)
     setEditDue(toLocalInputValue(task.dueAt))
-  }, [task.id, task.title, task.description, task.category, task.dueAt])
+  }, [
+    task.id,
+    task.status,
+    task.approvalStatus,
+    task.failReason,
+    task.title,
+    task.description,
+    task.category,
+    task.dueAt,
+  ])
 
   useEffect(() => {
     if (!groupId) return
@@ -76,8 +92,8 @@ export function TaskDetail({
 
   if (!session || !groupId) return null
 
-  const applyStatus = async (status: TaskStatus) => {
-    if (status === 'blocked' && !failReason.trim()) {
+  const applyStatus = async (next: TaskStatus) => {
+    if (next === 'blocked' && !failReason.trim()) {
       setPendingStatus('blocked')
       setError('Tamamlayamadım için kısa bir neden yazın')
       return
@@ -90,7 +106,7 @@ export function TaskDetail({
         demoUpdateStatus({
           groupId,
           taskId: task.id,
-          status,
+          status: next,
           member: session,
           note: note.trim() || undefined,
           failReason: failReason.trim() || undefined,
@@ -101,11 +117,19 @@ export function TaskDetail({
         await updateTaskStatus({
           groupId,
           taskId: task.id,
-          status,
+          status: next,
           member: session,
           note: note.trim() || undefined,
           failReason: failReason.trim() || undefined,
         })
+      }
+      setLocalStatus(next)
+      if (next === 'completed') setLocalApproval('pending')
+      else if (next === 'blocked') {
+        setLocalApproval(undefined)
+        setLocalFailReason(failReason.trim() || 'Belirtilmedi')
+      } else {
+        setLocalApproval(undefined)
       }
       setNote('')
       setFailReason('')
@@ -223,6 +247,7 @@ export function TaskDetail({
         })
       }
       setApprovalNote('')
+      setLocalApproval(decision)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Onaylanamadı')
     } finally {
@@ -230,7 +255,7 @@ export function TaskDetail({
     }
   }
 
-  const status = STATUS_META[task.status]
+  const status = STATUS_META[localStatus]
   const membershipRole = myMemberships.find((m) => m.orgId === session.orgId)?.role
   const canEdit = membershipRole === 'admin'
   const canDelete = membershipRole === 'admin'
@@ -257,12 +282,12 @@ export function TaskDetail({
           <div className="drawer-body">
             <div className={`status-banner tone-${status.tone}`}>
               <strong>{status.label}</strong>
-              {task.status === 'completed' &&
-                (!task.approvalStatus || task.approvalStatus === 'pending') && (
+              {localStatus === 'completed' &&
+                (!localApproval || localApproval === 'pending') && (
                   <span> · Onay bekliyor</span>
                 )}
-              {task.approvalStatus === 'approved' && <span> · Yönetici onayladı</span>}
-              {task.approvalStatus === 'rejected' && <span> · Reddedildi</span>}
+              {localApproval === 'approved' && <span> · Yönetici onayladı</span>}
+              {localApproval === 'rejected' && <span> · Reddedildi</span>}
               {isOrgAdmin &&
                 (task.assigneeNames?.length
                   ? ` · ${task.assignEveryone ? 'Herkese' : task.assigneeNames.join(', ')}`
@@ -282,8 +307,8 @@ export function TaskDetail({
             )}
 
             {isOrgAdmin &&
-              task.status === 'completed' &&
-              task.approvalStatus !== 'approved' && (
+              localStatus === 'completed' &&
+              localApproval !== 'approved' && (
                 <section className="drawer-section">
                   <h3>Yönetici onayı</h3>
                   <p className="muted tiny">
@@ -428,10 +453,10 @@ export function TaskDetail({
                 <dt>Tamamlanma</dt>
                 <dd>{formatWhen(task.completedAt)}</dd>
               </div>
-              {task.failReason && (
+              {localFailReason && (
                 <div className="span-2">
                   <dt>Neden tamamlanamadı</dt>
-                  <dd>{task.failReason}</dd>
+                  <dd>{localFailReason}</dd>
                 </div>
               )}
             </dl>
@@ -444,7 +469,7 @@ export function TaskDetail({
                     key={a.status}
                     type="button"
                     className={`action-btn tone-${STATUS_META[a.status].tone} ${
-                      task.status === a.status ? 'current' : ''
+                      localStatus === a.status ? 'current' : ''
                     }`}
                     disabled={busy}
                     onClick={() => applyStatus(a.status)}
@@ -454,7 +479,7 @@ export function TaskDetail({
                 ))}
               </div>
 
-              {(pendingStatus === 'blocked' || task.status === 'blocked') && (
+              {(pendingStatus === 'blocked' || localStatus === 'blocked') && (
                 <label className="block-reason">
                   Neden
                   <input
