@@ -263,11 +263,18 @@ export function TaskDetail({
                 )}
               {task.approvalStatus === 'approved' && <span> · Yönetici onayladı</span>}
               {task.approvalStatus === 'rejected' && <span> · Reddedildi</span>}
-              {task.assigneeNames?.length
-                ? ` · ${task.assignEveryone ? 'Herkese' : task.assigneeNames.join(', ')}`
-                : task.assigneeName
-                  ? ` · ${task.assigneeName}`
-                  : null}
+              {isOrgAdmin &&
+                (task.assigneeNames?.length
+                  ? ` · ${task.assignEveryone ? 'Herkese' : task.assigneeNames.join(', ')}`
+                  : task.assigneeName
+                    ? ` · ${task.assigneeName}`
+                    : null)}
+              {!isOrgAdmin &&
+                (task.assignEveryone ||
+                  task.assigneeId === session.memberId ||
+                  Boolean(task.assigneeIds?.includes(session.memberId))) && (
+                  <span> · Size atandı</span>
+                )}
             </div>
 
             {task.approvalNote && (

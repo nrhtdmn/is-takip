@@ -1,11 +1,34 @@
+import { useApp } from '../hooks/useApp'
 import type { Task } from '../types'
 import { CATEGORY_META, STATUS_META } from '../types'
 import { formatRelative, formatWhen } from '../lib/time'
 import { DeadlineBadge } from './DeadlineBadge'
 
+function assigneeLine(task: Task, isAdmin: boolean, myId?: string) {
+  if (isAdmin) {
+    if (task.assigneeNames && task.assigneeNames.length > 0) {
+      return task.assignEveryone
+        ? `Herkese: ${task.assigneeNames.join(', ')}`
+        : `Atananlar: ${task.assigneeNames.join(', ')}`
+    }
+    if (task.assigneeName) return `Üzerinde: ${task.assigneeName}`
+    return null
+  }
+
+  // Üye: diğer atananları görme — yalnızca kendisi
+  const assignedToMe =
+    task.assignEveryone ||
+    task.assigneeId === myId ||
+    Boolean(myId && task.assigneeIds?.includes(myId))
+  if (assignedToMe) return 'Size atandı'
+  return null
+}
+
 export function TaskCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
+  const { session, isOrgAdmin } = useApp()
   const status = STATUS_META[task.status]
   const category = CATEGORY_META[task.category]
+  const assignees = assigneeLine(task, isOrgAdmin, session?.memberId)
 
   return (
     <button type="button" className={`task-card tone-${status.tone}`} onClick={onOpen}>
@@ -33,13 +56,7 @@ export function TaskCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
         <span>{task.createdByName} yazdı</span>
         <span>{formatRelative(task.updatedAt)}</span>
       </div>
-      {task.assigneeNames && task.assigneeNames.length > 0 ? (
-        <div className="task-assignee">
-          {task.assignEveryone ? 'Herkese' : 'Atananlar'}: {task.assigneeNames.join(', ')}
-        </div>
-      ) : task.assigneeName ? (
-        <div className="task-assignee">Üzerinde: {task.assigneeName}</div>
-      ) : null}
+      {assignees && <div className="task-assignee">{assignees}</div>}
       {task.status === 'blocked' && task.failReason && (
         <div className="task-reason">Neden: {task.failReason}</div>
       )}
