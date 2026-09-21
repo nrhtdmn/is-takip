@@ -10,7 +10,6 @@ import {
   demoDeleteOrganization,
   demoRenameOrganization,
 } from '../lib/demoStore'
-import { PLANS } from '../lib/plans'
 import type { OrgRole } from '../types'
 import { ProfileScreen } from './ProfileScreen'
 import { DrawerShell } from './DrawerShell'
@@ -182,7 +181,7 @@ export function OrgScreen() {
             >
               <strong>{org.name}</strong>
               <span>
-                {role === 'admin' ? 'Yönetici' : title || 'Üye'} · {PLANS[org.plan].label}
+                {role === 'admin' ? 'Yönetici' : title || 'Üye'}
               </span>
             </button>
             {role === 'admin' && (

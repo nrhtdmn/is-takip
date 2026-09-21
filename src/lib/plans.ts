@@ -18,14 +18,14 @@ export interface PlanLimits {
 export const PLANS: Record<PlanId, PlanLimits> = {
   free: {
     id: 'free',
-    label: 'Reklamlı',
+    label: 'Ücretsiz',
     priceLabel: 'Ücretsiz',
     priceMonthlyTry: 0,
-    showAds: true,
+    showAds: false,
     maxOpenTasksPerPerson: null,
     maxGroups: null,
     maxMembers: null,
-    description: 'Tüm özellikler açık. Altta nazik, kapatılabilir bir sponsor bandı gösterilir.',
+    description: 'Tüm temel özellikler açık.',
   },
   starter: {
     id: 'starter',
@@ -36,7 +36,7 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     maxOpenTasksPerPerson: 10,
     maxGroups: 1,
     maxMembers: 5,
-    description: 'Reklamsız. Kişi başı 10 açık görev, en fazla 1 grup, 5 üye.',
+    description: 'Kişi başı 10 açık görev, en fazla 1 grup, 5 üye.',
   },
   premium: {
     id: 'premium',
@@ -47,7 +47,7 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     maxOpenTasksPerPerson: null,
     maxGroups: null,
     maxMembers: null,
-    description: 'Reklamsız, sınırsız grup / üye / görev. Alanlar arası izolasyon korunur.',
+    description: 'Sınırsız grup, üye ve görev.',
   },
 }
 

@@ -9,7 +9,7 @@ import {
 } from '../lib/notifications'
 
 export function NotificationWatcher() {
-  const { session, orgTasks, tasks, isOrgAdmin, demoMode } = useApp()
+  const { session, orgTasks, tasks, isOrgAdmin } = useApp()
   const [banner, setBanner] = useState(false)
 
   useEffect(() => {
@@ -42,11 +42,7 @@ export function NotificationWatcher() {
 
   return (
     <div className="banner banner-info sticky-banner notif-banner">
-      <span>
-        {demoMode
-          ? 'Onay ve miad bildirimleri için izin verin (yerel bildirim).'
-          : 'Onay ve miad için PWA bildirimi açın.'}
-      </span>
+      <span>Görev ve miad bildirimleri için izin verin.</span>
       <span className="notif-banner-actions">
         <button
           type="button"

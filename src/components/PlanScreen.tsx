@@ -144,7 +144,6 @@ function PlanCard({
       <h3>{plan.priceLabel}</h3>
       <p className="muted">{plan.description}</p>
       <ul className="plan-features">
-        <li>{plan.showAds ? 'Nazik sponsor bandı' : 'Reklamsız'}</li>
         <li>
           Görev:{' '}
           {plan.maxOpenTasksPerPerson == null

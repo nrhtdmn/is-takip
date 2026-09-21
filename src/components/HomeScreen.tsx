@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../hooks/useApp'
-import { planOf } from '../lib/plans'
 import type { Task, TaskStatus } from '../types'
 import { MembersScreen } from './MembersScreen'
 import { NewTaskForm } from './NewTaskForm'
 import { ProfileScreen } from './ProfileScreen'
-import { SoftAdBanner } from './SoftAdBanner'
 import { StatsBar } from './StatsBar'
 import { TaskCard } from './TaskCard'
 import { TaskDetail } from './TaskDetail'
@@ -23,9 +21,7 @@ export function HomeScreen() {
     orgTasks,
     groups,
     loading,
-    demoMode,
     isOrgAdmin,
-    currentOrg,
     switchProfile,
     leaveGroup,
     logout,
@@ -41,7 +37,6 @@ export function HomeScreen() {
   const pendingApprovals = usePendingApprovals()
   const rejectedApprovals = useRejectedApprovals()
 
-  const plan = planOf(currentOrg?.plan)
   const canCreateTasks = isOrgAdmin && Boolean(session?.groupId)
 
   const listSource = useMemo(() => {
@@ -81,7 +76,7 @@ export function HomeScreen() {
   if (!session?.groupId) return null
 
   return (
-    <div className="app-shell has-soft-ad">
+    <div className="app-shell">
       <header className="topbar">
         <div className="brand-block brand-lockup">
           <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="brand-logo sm" />
@@ -114,12 +109,6 @@ export function HomeScreen() {
           </button>
         </TopNav>
       </header>
-
-      {demoMode && (
-        <div className="banner banner-info sticky-banner">
-          Demo modu — Firebase bağlayınca herkes gerçek zamanlı görür.
-        </div>
-      )}
 
       {isOrgAdmin && (
         <div className="admin-toggle-row">
@@ -165,12 +154,6 @@ export function HomeScreen() {
             </button>
           )}
         </div>
-
-        {plan.maxOpenTasksPerPerson != null && isOrgAdmin && (
-          <p className="muted tiny">
-            Başlangıç planı: kişi başı en fazla {plan.maxOpenTasksPerPerson} açık görev.
-          </p>
-        )}
 
         {loading && <p className="muted">Yükleniyor…</p>}
         {!loading && filtered.length === 0 && (
@@ -224,7 +207,6 @@ export function HomeScreen() {
       {rejectedOpen && isOrgAdmin && (
         <PendingApprovalsScreen onClose={() => setRejectedOpen(false)} mode="rejected" />
       )}
-      <SoftAdBanner />
     </div>
   )
 }

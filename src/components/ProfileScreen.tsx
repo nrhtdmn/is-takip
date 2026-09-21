@@ -189,10 +189,8 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
         </label>
 
         <hr className="soft-hr" />
-        <p className="eyebrow">Şifre (Firebase Auth)</p>
-        <p className="muted tiny">
-          Şifre Firestore’da tutulmaz. Değiştirmek için mevcut ve yeni şifreyi yazın.
-        </p>
+        <p className="eyebrow">Şifre</p>
+        <p className="muted tiny">Değiştirmek için mevcut ve yeni şifreyi yazın.</p>
         {!demoMode && (
           <label>
             Mevcut şifre

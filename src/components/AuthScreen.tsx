@@ -5,6 +5,35 @@ import { demoCreateProfile, demoGetProfileById } from '../lib/demoStore'
 import { isValidTc, normalizeTc } from '../lib/tc'
 import { PROFILE_COLORS, profileNeedsPin } from '../types'
 
+function friendlyAuthError(raw: string) {
+  const m = raw.toLowerCase()
+  if (m.includes('user-not-found') || m.includes('bulunamad')) {
+    return 'Bu kimlikle kayıt bulunamadı. Hesap oluşturun.'
+  }
+  if (
+    m.includes('wrong-password') ||
+    m.includes('invalid-credential') ||
+    m.includes('invalid-login')
+  ) {
+    return 'T.C. Kimlik No veya şifre hatalı.'
+  }
+  if (m.includes('email-already') || m.includes('already-in-use')) {
+    return 'Bu kimlik zaten kayıtlı. Giriş yapın.'
+  }
+  if (m.includes('weak-password')) {
+    return 'Şifre en az 6 karakter olmalı.'
+  }
+  if (
+    m.includes('firebase') ||
+    m.includes('firestore') ||
+    m.includes('permission') ||
+    m.includes('auth')
+  ) {
+    return 'İşlem şu an tamamlanamadı. Lütfen tekrar deneyin.'
+  }
+  return raw
+}
+
 export function AuthScreen() {
   const { setSession, demoMode, refreshLocal } = useApp()
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -58,7 +87,9 @@ export function AuthScreen() {
         completeEnter(profile)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Giriş yapılamadı')
+      setError(
+        friendlyAuthError(err instanceof Error ? err.message : 'Giriş yapılamadı'),
+      )
     } finally {
       setBusy(false)
     }
@@ -76,7 +107,7 @@ export function AuthScreen() {
       return
     }
     if (!demoMode && pin.trim().length < 6) {
-      setError('Şifre en az 6 karakter olmalı (Firebase Auth)')
+      setError('Şifre en az 6 karakter olmalı')
       return
     }
     setBusy(true)
@@ -96,7 +127,9 @@ export function AuthScreen() {
         completeEnter(profile)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Kayıt olunamadı')
+      setError(
+        friendlyAuthError(err instanceof Error ? err.message : 'Kayıt olunamadı'),
+      )
     } finally {
       setBusy(false)
     }
@@ -115,15 +148,9 @@ export function AuthScreen() {
         </div>
         <p className="lead">
           {mode === 'login'
-            ? 'T.C. Kimlik No ve şifrenizle güvenli giriş (Firebase Auth).'
-            : 'Kimliğiniz T.C. No’dur. Şifre Auth’ta saklanır; Firestore’da düz metin tutulmaz.'}
+            ? 'T.C. Kimlik No ve şifrenizle giriş yapın.'
+            : 'T.C. Kimlik No ile hesap oluşturun; şifrenizi güvenle saklayın.'}
         </p>
-
-        {demoMode && (
-          <div className="banner banner-info">
-            Demo / Firebase yapılandırması eksik — `.env` ve Firestore kurallarını kontrol edin.
-          </div>
-        )}
 
         {mode === 'login' ? (
           <form onSubmit={login} className="stack">
@@ -144,19 +171,12 @@ export function AuthScreen() {
               <input
                 type="password"
                 autoComplete="current-password"
-                placeholder={demoMode ? 'Yoksa boş' : 'Örn. Deniz35. (en az 6 karakter)'}
+                placeholder="En az 6 karakter"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 required={!demoMode}
               />
             </label>
-            {!demoMode && (
-              <p className="muted tiny">
-                Şifre en az 6 karakter; harf, rakam, nokta kullanılabilir. Hata
-                “permissions” ise sorun şifre değil — Firestore kurallarını Publish
-                edin.
-              </p>
-            )}
             {error && <p className="error">{error}</p>}
             <button type="submit" className="btn primary" disabled={busy}>
               Giriş yap
@@ -180,7 +200,7 @@ export function AuthScreen() {
               <input
                 inputMode="numeric"
                 autoComplete="username"
-                placeholder="11 haneli (benzersiz kimlik)"
+                placeholder="11 haneli"
                 value={tc}
                 onChange={(e) => setTc(normalizeTc(e.target.value))}
                 maxLength={11}
@@ -197,22 +217,16 @@ export function AuthScreen() {
               />
             </label>
             <label>
-              Şifre {!demoMode && '(zorunlu, min. 6)'}
+              Şifre
               <input
                 type="password"
                 autoComplete="new-password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                placeholder="Örn. Deniz35."
+                placeholder="En az 6 karakter"
                 required={!demoMode}
               />
             </label>
-            {!demoMode && (
-              <p className="muted tiny">
-                Örnek geçerli şifre: <strong>Deniz35.</strong> — en az 6 karakter
-                yeter.
-              </p>
-            )}
             <div className="color-picker">
               <span>Renk</span>
               <div className="swatches">

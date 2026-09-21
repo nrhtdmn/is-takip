@@ -89,7 +89,7 @@ export function NewTaskForm({ onClose }: { onClose: () => void }) {
       myOpenCount >= plan.maxOpenTasksPerPerson
     ) {
       setError(
-        `Başlangıç planında kişi başı en fazla ${plan.maxOpenTasksPerPerson} açık görev.`,
+        `Kişi başı en fazla ${plan.maxOpenTasksPerPerson} açık görev.`,
       )
       return
     }

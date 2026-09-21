@@ -7,7 +7,7 @@ export type TaskStatus =
 
 export type TaskCategory = 'ev' | 'is' | 'diger'
 
-/** Ücretsiz reklamlı · Başlangıç kısıtlı · Premium sınırsız */
+/** Ücretsiz · Başlangıç · Premium (ücretli planlar şimdilik UI’de gizli) */
 export type PlanId = 'free' | 'starter' | 'premium'
 
 export type OrgRole = 'admin' | 'member'

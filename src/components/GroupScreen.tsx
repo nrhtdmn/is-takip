@@ -25,8 +25,6 @@ import {
 import { planOf } from '../lib/plans'
 import { isValidTc, normalizeTc } from '../lib/tc'
 import { computeGroupStats, groupPathLabel } from '../lib/stats'
-import { PlanScreen } from './PlanScreen'
-import { SoftAdBanner } from './SoftAdBanner'
 import { MembersScreen } from './MembersScreen'
 import { ProfileScreen } from './ProfileScreen'
 import { ControlFormsScreen } from './ControlFormsScreen'
@@ -62,7 +60,6 @@ export function GroupScreen() {
   const [creating, setCreating] = useState(false)
   const [managingId, setManagingId] = useState<string | null>(null)
   const [adminOpen, setAdminOpen] = useState(false)
-  const [planOpen, setPlanOpen] = useState(false)
   const [formsOpen, setFormsOpen] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -150,7 +147,7 @@ export function GroupScreen() {
       return
     }
     if (plan.maxGroups != null && groups.length >= plan.maxGroups) {
-      setError(`Başlangıç planında en fazla ${plan.maxGroups} grup. Premium’a geçin.`)
+      setError(`Bu planda en fazla ${plan.maxGroups} grup oluşturulabilir.`)
       return
     }
     const seedMembers = Array.from(
@@ -408,7 +405,7 @@ export function GroupScreen() {
   }
 
   return (
-    <div className="app-shell has-soft-ad">
+    <div className="app-shell">
       <header className="topbar">
         <div className="brand-block brand-lockup">
           <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="brand-logo sm" />
@@ -428,9 +425,6 @@ export function GroupScreen() {
               Kontrol formları
             </button>
           )}
-          <button type="button" className="btn ghost compact" onClick={() => setPlanOpen(true)}>
-            {plan.label}
-          </button>
           {isOrgAdmin && (
             <button type="button" className="btn ghost compact" onClick={() => setAdminOpen(true)}>
               Yönetim
@@ -892,7 +886,6 @@ export function GroupScreen() {
         </DrawerShell>
       )}
 
-      {planOpen && <PlanScreen onClose={() => setPlanOpen(false)} />}
       {formsOpen && <ControlFormsScreen onClose={() => setFormsOpen(false)} />}
       {membersOpen && <MembersScreen scope="org" onClose={() => setMembersOpen(false)} />}
       {profileOpen && <ProfileScreen onClose={() => setProfileOpen(false)} />}
@@ -908,7 +901,6 @@ export function GroupScreen() {
           onDeleted={() => setApprovalTask(null)}
         />
       )}
-      <SoftAdBanner />
     </div>
   )
 }
