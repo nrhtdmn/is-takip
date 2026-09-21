@@ -176,7 +176,7 @@ export function HomeScreen() {
       <section className="task-list">
         <div className="section-head">
           <h2>Görevler</h2>
-          {!adminAll && (
+          {isOrgAdmin && !adminAll && (
             <button type="button" className="btn primary compact" onClick={() => setCreating(true)}>
               + Yeni
             </button>
@@ -193,7 +193,11 @@ export function HomeScreen() {
         {!loading && filtered.length === 0 && (
           <div className="empty">
             <h3>Henüz görev yok</h3>
-            <p>İlk görevi ekleyin — miad isterseniz tarih/saat yazın.</p>
+            <p>
+              {isOrgAdmin
+                ? 'İlk görevi ekleyin — miad isterseniz tarih/saat yazın.'
+                : 'Yönetici size görev atadığında burada görünecek.'}
+            </p>
           </div>
         )}
 
@@ -204,13 +208,13 @@ export function HomeScreen() {
         </div>
       </section>
 
-      {!adminAll && (
+      {isOrgAdmin && !adminAll && (
         <button type="button" className="fab" onClick={() => setCreating(true)} aria-label="Yeni görev">
           +
         </button>
       )}
 
-      {creating && <NewTaskForm onClose={() => setCreating(false)} />}
+      {creating && isOrgAdmin && <NewTaskForm onClose={() => setCreating(false)} />}
       {liveSelected && (
         <TaskDetail
           task={liveSelected}

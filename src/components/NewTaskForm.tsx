@@ -59,6 +59,16 @@ export function NewTaskForm({ onClose }: { onClose: () => void }) {
   }, [demoMode, session, tasks])
 
   if (!session?.groupId) return null
+  if (!isOrgAdmin) {
+    return (
+      <DrawerShell onClose={onClose} eyebrow="Yeni görev" title="Yetki yok">
+        <p className="muted">Görev yalnızca yönetici tarafından eklenebilir.</p>
+        <button type="button" className="btn primary" onClick={onClose}>
+          Kapat
+        </button>
+      </DrawerShell>
+    )
+  }
   const groupId = session.groupId
 
   const toggleAssignee = (id: string) => {
