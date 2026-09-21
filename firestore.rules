@@ -123,7 +123,9 @@ service cloud.firestore {
     match /groups/{groupId}/tasks/{taskId} {
       allow read: if canReadTask(groupId, resource.data);
       allow create: if isOrgAdmin(groupData(groupId).orgId);
-      allow update, delete: if canAccessGroup(groupId);
+      // Üye durum güncelleyebilir; silme ve içerik düzenleme yönetici
+      allow update: if canAccessGroup(groupId);
+      allow delete: if isOrgAdmin(groupData(groupId).orgId);
     }
 
     match /groups/{groupId}/tasks/{taskId}/updates/{updateId} {

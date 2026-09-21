@@ -226,11 +226,7 @@ export function TaskDetail({
   }
 
   const status = STATUS_META[task.status]
-  const canEdit =
-    isOrgAdmin ||
-    task.createdById === session.memberId ||
-    task.assigneeId === session.memberId ||
-    Boolean(task.assigneeIds?.includes(session.memberId))
+  const canEdit = isOrgAdmin
 
   return (
     <DrawerPortal>
@@ -489,11 +485,13 @@ export function TaskDetail({
               </ul>
             </section>
 
-            <section className="drawer-section">
-              <button type="button" className="btn danger" disabled={busy} onClick={remove}>
-                Görevi sil
-              </button>
-            </section>
+            {isOrgAdmin && (
+              <section className="drawer-section">
+                <button type="button" className="btn danger" disabled={busy} onClick={remove}>
+                  Görevi sil
+                </button>
+              </section>
+            )}
           </div>
         </aside>
       </div>
