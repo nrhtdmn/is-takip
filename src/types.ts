@@ -33,7 +33,25 @@ export interface Profile {
   /** Kişisel ünvan / meslek (alan unvanından ayrı) */
   jobTitle?: string
   visibility: ProfileVisibility
+  /** Şifre unutma güvenlik sorusu */
+  recoveryQuestion?: string
+  /** Yanıtın normalize hali — istemciye dönülmez */
+  recoveryAnswerNorm?: string
 }
+
+/** Şifre hatırlatma yanıtı: boşluk/büyük-küçük harf duyarsız */
+export function normalizeRecoveryAnswer(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ').toLocaleLowerCase('tr-TR')
+}
+
+export const RECOVERY_QUESTION_PRESETS = [
+  'Annenizin kızlık soyadı nedir?',
+  'İlk evcil hayvanınızın adı nedir?',
+  'Doğduğunuz şehir neresidir?',
+  'İlkokul öğretmeninizin adı nedir?',
+  'En sevdiğiniz yemek nedir?',
+] as const
+
 
 /** Profil belge kimliği = T.C. Kimlik No (11 hane) */
 
@@ -245,6 +263,8 @@ export function normalizeProfile(raw: Partial<Profile> & { id: string; name: str
     phone: raw.phone,
     bio: raw.bio,
     jobTitle: raw.jobTitle,
+    recoveryQuestion: raw.recoveryQuestion?.trim() || undefined,
+    // Yanıt asla istemci state’ine konmaz
     visibility: {
       ...DEFAULT_VISIBILITY,
       ...(raw.visibility || {}),

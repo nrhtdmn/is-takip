@@ -20,6 +20,13 @@ function isValidTc(raw) {
   return true
 }
 
+function normalizeRecoveryAnswer(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('tr-TR')
+}
+
 const DEFAULT_VISIBILITY = {
   email: false,
   phone: false,
@@ -33,11 +40,19 @@ exports.registerWithTc = onCall(async (request) => {
   const name = String(request.data?.name || '').trim()
   const color = String(request.data?.color || '#1a5c4a')
   const password = String(request.data?.password || '')
+  const recoveryQuestion = String(request.data?.recoveryQuestion || '').trim()
+  const recoveryAnswerNorm = normalizeRecoveryAnswer(request.data?.recoveryAnswer || '')
 
   if (!isValidTc(tc)) throw new HttpsError('invalid-argument', 'Geçersiz T.C. Kimlik No')
   if (name.length < 2) throw new HttpsError('invalid-argument', 'İsim en az 2 karakter')
   if (password.length < 6) {
     throw new HttpsError('invalid-argument', 'Şifre en az 6 karakter olmalı')
+  }
+  if (recoveryQuestion.length < 3) {
+    throw new HttpsError('invalid-argument', 'Güvenlik sorusu gerekli')
+  }
+  if (recoveryAnswerNorm.length < 1) {
+    throw new HttpsError('invalid-argument', 'Güvenlik yanıtı gerekli')
   }
 
   const existing = await db.collection('profiles').doc(tc).get()
@@ -65,10 +80,72 @@ exports.registerWithTc = onCall(async (request) => {
     createdAt: Date.now(),
     visibility: DEFAULT_VISIBILITY,
     authUid: tc,
+    recoveryQuestion,
+    recoveryAnswerNorm,
   })
   await db.collection('uidMap').doc(tc).set({ profileId: tc })
 
   return { ok: true, profileId: tc }
+})
+
+/** Giriş yapmadan güvenlik sorusunu getir */
+exports.getRecoveryQuestion = onCall(async (request) => {
+  const tc = String(request.data?.tc || '').replace(/\D/g, '')
+  if (!isValidTc(tc)) throw new HttpsError('invalid-argument', 'Geçersiz T.C. Kimlik No')
+
+  const snap = await db.collection('profiles').doc(tc).get()
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'Bu kimlikle kayıt bulunamadı')
+  }
+  const q = String(snap.data()?.recoveryQuestion || '').trim()
+  if (!q) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Bu hesap için güvenlik sorusu tanımlı değil. Yöneticiye başvurun.',
+    )
+  }
+  return { question: q }
+})
+
+/** Güvenlik yanıtı doğruysa Auth şifresini yenile */
+exports.resetPasswordWithRecovery = onCall(async (request) => {
+  const tc = String(request.data?.tc || '').replace(/\D/g, '')
+  const answer = normalizeRecoveryAnswer(request.data?.answer || '')
+  const newPassword = String(request.data?.newPassword || '')
+
+  if (!isValidTc(tc)) throw new HttpsError('invalid-argument', 'Geçersiz T.C. Kimlik No')
+  if (answer.length < 1) throw new HttpsError('invalid-argument', 'Yanıt gerekli')
+  if (newPassword.length < 6) {
+    throw new HttpsError('invalid-argument', 'Yeni şifre en az 6 karakter olmalı')
+  }
+
+  const snap = await db.collection('profiles').doc(tc).get()
+  if (!snap.exists) throw new HttpsError('not-found', 'Bu kimlikle kayıt bulunamadı')
+  const data = snap.data() || {}
+  const stored = String(data.recoveryAnswerNorm || '')
+  if (!stored || stored !== answer) {
+    throw new HttpsError('permission-denied', 'Güvenlik yanıtı hatalı')
+  }
+
+  try {
+    await admin.auth().updateUser(tc, { password: newPassword })
+  } catch (err) {
+    if (err.code === 'auth/user-not-found') {
+      // Auth yoksa oluştur
+      await admin.auth().createUser({
+        uid: tc,
+        email: `${tc}@istakip.app`,
+        password: newPassword,
+        displayName: data.name || tc,
+      })
+      await db.collection('uidMap').doc(tc).set({ profileId: tc }, { merge: true })
+      await db.collection('profiles').doc(tc).set({ authUid: tc }, { merge: true })
+    } else {
+      throw new HttpsError('internal', err.message || 'Şifre güncellenemedi')
+    }
+  }
+
+  return { ok: true }
 })
 
 /** Eski düz metin pin → Auth’a taşı, pin alanını sil */

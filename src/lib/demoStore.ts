@@ -19,7 +19,7 @@ import type {
 } from '../types'
 import type { Session } from './api'
 import { createLocalId } from './api'
-import { DEFAULT_VISIBILITY, normalizeProfile } from '../types'
+import { DEFAULT_VISIBILITY, normalizeProfile, normalizeRecoveryAnswer } from '../types'
 import { effectivePlan } from './plans'
 import { isValidTc, normalizeTc } from './tc'
 
@@ -96,6 +96,8 @@ export function demoCreateProfile(
   name: string,
   color: string,
   pin?: string,
+  recoveryQuestion?: string,
+  recoveryAnswer?: string,
 ): Profile {
   const id = normalizeTc(tc)
   if (!isValidTc(id)) {
@@ -104,18 +106,59 @@ export function demoCreateProfile(
   if (demoGetProfileById(id)) {
     throw new Error('Bu T.C. Kimlik No ile kayıt zaten var — giriş yapın')
   }
+  const q = (recoveryQuestion || '').trim()
+  const ans = normalizeRecoveryAnswer(recoveryAnswer || '')
+  if (q.length < 3) throw new Error('Güvenlik sorusu gerekli')
+  if (ans.length < 1) throw new Error('Güvenlik yanıtı gerekli')
   const profile = normalizeProfile({
     id,
     name: name.trim(),
     color,
     createdAt: Date.now(),
     ...(pin?.trim() ? { pin: pin.trim() } : {}),
+    recoveryQuestion: q,
     visibility: DEFAULT_VISIBILITY,
   })
   const list = demoGetProfiles()
   list.push(profile)
   write(PROFILES_KEY, list)
+  // Yanıtı ayrı sakla (normalizeProfile yanıtı atar)
+  const stored = read<(Profile & { recoveryAnswerNorm?: string })[]>(PROFILES_KEY, [])
+  write(
+    PROFILES_KEY,
+    stored.map((p) => (p.id === id ? { ...p, recoveryAnswerNorm: ans } : p)),
+  )
   return profile
+}
+
+export function demoGetRecoveryQuestion(tc: string): string {
+  const id = normalizeTc(tc)
+  const all = read<(Profile & { recoveryAnswerNorm?: string })[]>(PROFILES_KEY, [])
+  const p = all.find((x) => x.id === id)
+  if (!p) throw new Error('Bu kimlikle kayıt bulunamadı')
+  const q = p.recoveryQuestion?.trim()
+  if (!q) throw new Error('Bu hesap için güvenlik sorusu tanımlı değil')
+  return q
+}
+
+export function demoResetPasswordWithRecovery(input: {
+  tc: string
+  answer: string
+  newPassword: string
+}) {
+  const id = normalizeTc(input.tc)
+  const ans = normalizeRecoveryAnswer(input.answer)
+  if (input.newPassword.trim().length < 6) {
+    throw new Error('Yeni şifre en az 6 karakter olmalı')
+  }
+  const all = read<(Profile & { recoveryAnswerNorm?: string })[]>(PROFILES_KEY, [])
+  const idx = all.findIndex((x) => x.id === id)
+  if (idx < 0) throw new Error('Bu kimlikle kayıt bulunamadı')
+  if (!all[idx].recoveryAnswerNorm || all[idx].recoveryAnswerNorm !== ans) {
+    throw new Error('Güvenlik yanıtı hatalı')
+  }
+  all[idx] = { ...all[idx], pin: input.newPassword.trim() }
+  write(PROFILES_KEY, all)
 }
 
 export function demoUpdateProfile(
@@ -129,23 +172,34 @@ export function demoUpdateProfile(
     bio?: string
     jobTitle?: string
     visibility?: ProfileVisibility
+    recoveryQuestion?: string
+    recoveryAnswer?: string
   },
 ) {
-  const list = demoGetProfiles().map((p) => {
-    if (p.id !== profileId) return p
-    const next = { ...p }
-    if (patch.name !== undefined) next.name = patch.name.trim()
-    if (patch.color !== undefined) next.color = patch.color
-    if (patch.email !== undefined) next.email = patch.email.trim() || undefined
-    if (patch.phone !== undefined) next.phone = patch.phone.trim() || undefined
-    if (patch.bio !== undefined) next.bio = patch.bio.trim() || undefined
-    if (patch.jobTitle !== undefined) next.jobTitle = patch.jobTitle.trim() || undefined
-    if (patch.visibility !== undefined) next.visibility = patch.visibility
-    if (patch.pin !== undefined) {
-      next.pin = patch.pin && patch.pin.trim() ? patch.pin.trim() : undefined
-    }
-    return normalizeProfile(next)
-  })
+  const list = read<(Profile & { recoveryAnswerNorm?: string })[]>(PROFILES_KEY, []).map(
+    (p) => {
+      if (p.id !== profileId) return p
+      const next = { ...p }
+      if (patch.name !== undefined) next.name = patch.name.trim()
+      if (patch.color !== undefined) next.color = patch.color
+      if (patch.email !== undefined) next.email = patch.email.trim() || undefined
+      if (patch.phone !== undefined) next.phone = patch.phone.trim() || undefined
+      if (patch.bio !== undefined) next.bio = patch.bio.trim() || undefined
+      if (patch.jobTitle !== undefined) next.jobTitle = patch.jobTitle.trim() || undefined
+      if (patch.visibility !== undefined) next.visibility = patch.visibility
+      if (patch.pin !== undefined) {
+        next.pin = patch.pin && patch.pin.trim() ? patch.pin.trim() : undefined
+      }
+      if (patch.recoveryQuestion !== undefined) {
+        next.recoveryQuestion = patch.recoveryQuestion.trim()
+      }
+      if (patch.recoveryAnswer !== undefined && patch.recoveryAnswer.trim()) {
+        next.recoveryAnswerNorm = normalizeRecoveryAnswer(patch.recoveryAnswer)
+      }
+      const { recoveryAnswerNorm, ...pub } = next
+      return { ...normalizeProfile(pub), recoveryAnswerNorm }
+    },
+  )
   write(PROFILES_KEY, list)
 }
 

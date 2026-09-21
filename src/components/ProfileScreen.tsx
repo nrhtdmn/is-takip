@@ -6,6 +6,7 @@ import { formatTcDisplay } from '../lib/tc'
 import {
   DEFAULT_VISIBILITY,
   PROFILE_COLORS,
+  RECOVERY_QUESTION_PRESETS,
   type ProfileVisibility,
 } from '../types'
 import { DrawerShell } from './DrawerShell'
@@ -23,6 +24,18 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
   const [visibility, setVisibility] = useState<ProfileVisibility>(
     me?.visibility || DEFAULT_VISIBILITY,
   )
+  const [recoveryPreset, setRecoveryPreset] = useState<string>(() => {
+    const q = me?.recoveryQuestion || ''
+    if (q && (RECOVERY_QUESTION_PRESETS as readonly string[]).includes(q)) return q
+    if (q) return '__custom__'
+    return RECOVERY_QUESTION_PRESETS[0]
+  })
+  const [recoveryCustom, setRecoveryCustom] = useState(() => {
+    const q = me?.recoveryQuestion || ''
+    if (q && !(RECOVERY_QUESTION_PRESETS as readonly string[]).includes(q)) return q
+    return ''
+  })
+  const [recoveryAnswer, setRecoveryAnswer] = useState('')
   const [currentPin, setCurrentPin] = useState('')
   const [newPin, setNewPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
@@ -39,9 +52,20 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
     setJobTitle(me.jobTitle || '')
     setBio(me.bio || '')
     setVisibility(me.visibility || DEFAULT_VISIBILITY)
+    const q = me.recoveryQuestion || ''
+    if (q && (RECOVERY_QUESTION_PRESETS as readonly string[]).includes(q)) {
+      setRecoveryPreset(q)
+      setRecoveryCustom('')
+    } else if (q) {
+      setRecoveryPreset('__custom__')
+      setRecoveryCustom(q)
+    }
   }, [me])
 
   if (!session || !me) return null
+
+  const recoveryQuestion =
+    recoveryPreset === '__custom__' ? recoveryCustom.trim() : recoveryPreset
 
   const toggleVis = (key: keyof ProfileVisibility) => {
     setVisibility((v) => ({ ...v, [key]: !v[key] }))
@@ -51,6 +75,10 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     if (name.trim().length < 2) {
       setError('İsim en az 2 karakter')
+      return
+    }
+    if (recoveryQuestion.length < 3) {
+      setError('Güvenlik sorusu gerekli')
       return
     }
     if (newPin) {
@@ -79,6 +107,10 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
         jobTitle,
         bio,
         visibility,
+        recoveryQuestion,
+        ...(recoveryAnswer.trim()
+          ? { recoveryAnswer: recoveryAnswer.trim() }
+          : {}),
       }
       if (demoMode) {
         demoUpdateProfile(me.id, {
@@ -103,6 +135,7 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
       setCurrentPin('')
       setNewPin('')
       setConfirmPin('')
+      setRecoveryAnswer('')
       setOk('Profil kaydedildi')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Kaydedilemedi')
@@ -186,6 +219,46 @@ export function ProfileScreen({ onClose }: { onClose: () => void }) {
         <label className="check-row">
           <input type="checkbox" checked={visibility.bio} onChange={() => toggleVis('bio')} />
           Başkaları bu metni görsün
+        </label>
+
+        <hr className="soft-hr" />
+        <p className="eyebrow">Şifre hatırlatma</p>
+        <p className="muted tiny">
+          Şifrenizi unutursanız bu soru ile yenilersiniz. Yanıt büyük/küçük harf duyarsızdır.
+        </p>
+        <label>
+          Güvenlik sorusu
+          <select value={recoveryPreset} onChange={(e) => setRecoveryPreset(e.target.value)}>
+            {RECOVERY_QUESTION_PRESETS.map((q) => (
+              <option key={q} value={q}>
+                {q}
+              </option>
+            ))}
+            <option value="__custom__">Kendi sorumu yazacağım</option>
+          </select>
+        </label>
+        {recoveryPreset === '__custom__' && (
+          <label>
+            Sorunuz
+            <input
+              value={recoveryCustom}
+              onChange={(e) => setRecoveryCustom(e.target.value)}
+              maxLength={120}
+            />
+          </label>
+        )}
+        <label>
+          Güvenlik yanıtı
+          <input
+            value={recoveryAnswer}
+            onChange={(e) => setRecoveryAnswer(e.target.value)}
+            placeholder={
+              me.recoveryQuestion
+                ? 'Değiştirmek için yeni yanıt yazın (boş = aynı kalsın)'
+                : 'Yanıtınız'
+            }
+            autoComplete="off"
+          />
         </label>
 
         <hr className="soft-hr" />

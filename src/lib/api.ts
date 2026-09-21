@@ -49,7 +49,7 @@ import type {
   TaskStatus,
   TaskUpdate,
 } from '../types'
-import { normalizeProfile } from '../types'
+import { normalizeProfile, normalizeRecoveryAnswer } from '../types'
 
 const SESSION_KEY = 'istakip_session'
 const UNLOCK_KEY = 'istakip_unlocked'
@@ -180,8 +180,11 @@ export async function getProfileById(profileId: string): Promise<Profile | null>
   const snap = await getDoc(doc(getDb(), 'profiles', id))
   if (!snap.exists()) return null
   const raw = snap.data() as Omit<Profile, 'id'>
-  // Şifre asla istemci modeline alınmaz
-  const { pin: _pin, ...rest } = raw as Omit<Profile, 'id'> & { pin?: string }
+  // Şifre ve güvenlik yanıtı asla istemci modeline alınmaz
+  const { pin: _pin, recoveryAnswerNorm: _ans, ...rest } = raw as Omit<Profile, 'id'> & {
+    pin?: string
+    recoveryAnswerNorm?: string
+  }
   return normalizeProfile({
     id: snap.id,
     ...rest,
@@ -206,7 +209,10 @@ export function subscribeProfilesForIds(
       (snap) => {
         if (snap.exists()) {
           const raw = snap.data() as Omit<Profile, 'id'>
-          const { pin: _p, ...rest } = raw as Omit<Profile, 'id'> & { pin?: string }
+          const { pin: _p, recoveryAnswerNorm: _a, ...rest } = raw as Omit<Profile, 'id'> & {
+            pin?: string
+            recoveryAnswerNorm?: string
+          }
           map.set(id, normalizeProfile({ id, ...rest }))
         } else {
           map.delete(id)
@@ -282,10 +288,16 @@ export async function registerWithAuth(input: {
   name: string
   color: string
   password: string
+  recoveryQuestion: string
+  recoveryAnswer: string
 }): Promise<Profile> {
   const id = normalizeTc(input.tc)
   if (!isValidTc(id)) throw new Error('Geçerli bir T.C. Kimlik No girin (11 hane)')
   if (input.password.trim().length < 6) throw new Error('Şifre en az 6 karakter olmalı')
+  const recoveryQuestion = input.recoveryQuestion.trim()
+  const recoveryAnswerNorm = normalizeRecoveryAnswer(input.recoveryAnswer)
+  if (recoveryQuestion.length < 3) throw new Error('Güvenlik sorusu gerekli')
+  if (recoveryAnswerNorm.length < 1) throw new Error('Güvenlik yanıtı gerekli')
 
   const password = input.password.trim()
   const auth = getFirebaseAuth()
@@ -299,6 +311,8 @@ export async function registerWithAuth(input: {
       name: input.name.trim(),
       color: input.color,
       password,
+      recoveryQuestion,
+      recoveryAnswer: input.recoveryAnswer,
     })
     await signInWithEmailAndPassword(auth, email, password)
   } catch {
@@ -323,18 +337,14 @@ export async function registerWithAuth(input: {
           color: input.color,
         })
       } else if (code === 'auth/operation-not-allowed') {
-        throw new Error(
-          'Firebase Authentication → Email/Password henüz açılmamış (Console).',
-        )
+        throw new Error('Kayıt şu an açılamıyor. Lütfen tekrar deneyin.')
       } else if (code === 'auth/weak-password') {
         throw new Error('Şifre çok zayıf — en az 6 karakter kullanın')
       } else if (
         String((authErr as Error)?.message || '').includes('permission') ||
         code === 'permission-denied'
       ) {
-        throw new Error(
-          'Firestore izin hatası — Console’da güncel firestore.rules dosyasını Publish edin.',
-        )
+        throw new Error('Kayıt tamamlanamadı. Lütfen tekrar deneyin.')
       } else {
         throw new Error(authErr instanceof Error ? authErr.message : 'Kayıt olunamadı')
       }
@@ -349,11 +359,61 @@ export async function registerWithAuth(input: {
       name: input.name.trim(),
       color: input.color,
     })
+    await updateDoc(doc(getDb(), 'profiles', id), {
+      recoveryQuestion,
+      recoveryAnswerNorm,
+    })
   }
 
   const profile = await getProfileById(id)
-  if (!profile) throw new Error('Profil oluşturulamadı — Firestore kurallarını Publish edin')
+  if (!profile) throw new Error('Profil oluşturulamadı')
   return profile
+}
+
+export async function fetchRecoveryQuestion(tc: string): Promise<string> {
+  const id = normalizeTc(tc)
+  if (!isValidTc(id)) throw new Error('Geçerli bir T.C. Kimlik No girin')
+  try {
+    const fn = httpsCallable<
+      { tc: string },
+      { question: string }
+    >(getFirebaseFunctions(), 'getRecoveryQuestion')
+    const res = await fn({ tc: id })
+    return res.data.question
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Soru alınamadı'
+    if (msg.includes('not-found') || msg.includes('bulunamad')) {
+      throw new Error('Bu kimlikle kayıt bulunamadı')
+    }
+    if (msg.includes('failed-precondition') || msg.includes('güvenlik')) {
+      throw new Error('Bu hesap için güvenlik sorusu tanımlı değil')
+    }
+    throw new Error(msg.replace(/^[^:]+:\s*/i, '') || 'Soru alınamadı')
+  }
+}
+
+export async function resetPasswordWithRecovery(input: {
+  tc: string
+  answer: string
+  newPassword: string
+}): Promise<void> {
+  const id = normalizeTc(input.tc)
+  if (!isValidTc(id)) throw new Error('Geçerli bir T.C. Kimlik No girin')
+  if (input.newPassword.trim().length < 6) throw new Error('Yeni şifre en az 6 karakter olmalı')
+  try {
+    const fn = httpsCallable(getFirebaseFunctions(), 'resetPasswordWithRecovery')
+    await fn({
+      tc: id,
+      answer: input.answer,
+      newPassword: input.newPassword.trim(),
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Şifre yenilenemedi'
+    if (msg.includes('permission-denied') || msg.includes('hatalı')) {
+      throw new Error('Güvenlik yanıtı hatalı')
+    }
+    throw new Error(msg.replace(/^[^:]+:\s*/i, '') || 'Şifre yenilenemedi')
+  }
 }
 
 export async function loginWithAuth(tc: string, password: string): Promise<Profile> {
@@ -452,12 +512,16 @@ export async function createProfile(input: {
   name: string
   color: string
   pin?: string
+  recoveryQuestion?: string
+  recoveryAnswer?: string
 }): Promise<Profile> {
   return registerWithAuth({
     tc: input.tc,
     name: input.name,
     color: input.color,
     password: input.pin?.trim() || '',
+    recoveryQuestion: input.recoveryQuestion || '',
+    recoveryAnswer: input.recoveryAnswer || '',
   })
 }
 
@@ -471,6 +535,8 @@ export async function updateProfile(
     bio?: string
     jobTitle?: string
     visibility?: ProfileVisibility
+    recoveryQuestion?: string
+    recoveryAnswer?: string
   },
 ): Promise<void> {
   const data: Record<string, unknown> = {}
@@ -481,6 +547,12 @@ export async function updateProfile(
   if (patch.bio !== undefined) data.bio = patch.bio.trim() || null
   if (patch.jobTitle !== undefined) data.jobTitle = patch.jobTitle.trim() || null
   if (patch.visibility !== undefined) data.visibility = patch.visibility
+  if (patch.recoveryQuestion !== undefined) {
+    data.recoveryQuestion = patch.recoveryQuestion.trim()
+  }
+  if (patch.recoveryAnswer !== undefined && patch.recoveryAnswer.trim()) {
+    data.recoveryAnswerNorm = normalizeRecoveryAnswer(patch.recoveryAnswer)
+  }
   await updateDoc(doc(getDb(), 'profiles', profileId), data)
 }
 
