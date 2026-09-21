@@ -120,6 +120,22 @@ service cloud.firestore {
       allow update, delete: if isOrgAdmin(resource.data.orgId);
     }
 
+    match /controlForms/{id} {
+      allow read: if isOrgMember(resource.data.orgId);
+      allow create: if isOrgAdmin(request.resource.data.orgId)
+        && request.resource.data.createdById == myProfileId();
+      allow update, delete: if isOrgAdmin(resource.data.orgId);
+    }
+
+    match /groups/{groupId}/tasks/{taskId}/formAnswers/{answerId} {
+      allow read: if isOrgMember(groupData(groupId).orgId);
+      allow create, update: if canAccessGroup(groupId) && (
+        answerId == myProfileId()
+        || isOrgAdmin(groupData(groupId).orgId)
+      );
+      allow delete: if isOrgAdmin(groupData(groupId).orgId);
+    }
+
     match /pushTokens/{id} {
       allow read, write: if signedIn() && id == myProfileId();
     }

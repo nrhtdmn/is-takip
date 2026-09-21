@@ -21,6 +21,7 @@ import type { Task, TaskCategory, TaskStatus, TaskUpdate } from '../types'
 import { CATEGORY_META, STATUS_META } from '../types'
 import { DeadlineBadge } from './DeadlineBadge'
 import { DrawerPortal } from './DrawerShell'
+import { TaskFormPanel } from './TaskFormPanel'
 
 const ACTIONS: { status: TaskStatus; label: string }[] = [
   { status: 'started', label: 'İşe başladım' },
@@ -319,6 +320,10 @@ export function TaskDetail({
 
             {task.description && !editing && (
               <p className="drawer-desc">{task.description}</p>
+            )}
+
+            {task.formItems && task.formItems.length > 0 && groupId && (
+              <TaskFormPanel task={task} groupId={groupId} />
             )}
 
             {canEdit && (

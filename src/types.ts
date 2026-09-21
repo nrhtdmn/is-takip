@@ -114,6 +114,55 @@ export interface Task {
   approvedById?: string
   approvedByName?: string
   approvalNote?: string
+  /** Bağlı kontrol formu / anket (şablon anlık kopyası) */
+  formId?: string
+  formName?: string
+  formItems?: TaskFormItem[]
+}
+
+/** Kontrol formu maddesi */
+export interface ControlFormItem {
+  id: string
+  text: string
+  order: number
+}
+
+/** Alan içinde kayıtlı kontrol formu şablonu */
+export interface ControlForm {
+  id: string
+  orgId: string
+  name: string
+  description?: string
+  items: ControlFormItem[]
+  createdAt: number
+  updatedAt: number
+  createdById: string
+  createdByName: string
+}
+
+/** Göreve gömülen form maddesi */
+export interface TaskFormItem {
+  id: string
+  text: string
+  order: number
+}
+
+export type FormYesNo = 'yes' | 'no'
+
+export interface FormItemResponse {
+  answer: FormYesNo
+  note?: string
+}
+
+/** Bir kişinin forma verdiği yanıtlar (belge id = profileId) */
+export interface TaskFormAnswer {
+  profileId: string
+  profileName: string
+  responses: Record<string, FormItemResponse>
+  updatedAt: number
+  updatedById: string
+  updatedByName: string
+  answeredAsAdmin?: boolean
 }
 
 /** Yönetici takdir / rozet */

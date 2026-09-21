@@ -1,5 +1,13 @@
 import { createContext, useContext } from 'react'
-import type { Group, Organization, OrgMembership, Profile, Recognition, Task } from '../types'
+import type {
+  ControlForm,
+  Group,
+  Organization,
+  OrgMembership,
+  Profile,
+  Recognition,
+  Task,
+} from '../types'
 import type { Session } from '../lib/api'
 
 export interface AppState {
@@ -13,6 +21,8 @@ export interface AppState {
   /** Alandaki tüm görevler (istatistik / yönetici) */
   orgTasks: (Task & { groupId: string })[]
   recognitions: Recognition[]
+  /** Alanın kayıtlı kontrol formu şablonları */
+  controlForms: ControlForm[]
   loading: boolean
   demoMode: boolean
   setSession: (session: Session | null) => void

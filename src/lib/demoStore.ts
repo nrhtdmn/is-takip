@@ -1,4 +1,7 @@
 import type {
+  ControlForm,
+  ControlFormItem,
+  FormItemResponse,
   Group,
   Organization,
   OrgMembership,
@@ -9,6 +12,8 @@ import type {
   Recognition,
   Task,
   TaskCategory,
+  TaskFormAnswer,
+  TaskFormItem,
   TaskStatus,
   TaskUpdate,
 } from '../types'
@@ -25,6 +30,8 @@ const GROUPS_KEY = 'istakip_v4_groups'
 const TASKS_KEY = 'istakip_v4_tasks'
 const UPDATES_KEY = 'istakip_v4_updates'
 const RECOG_KEY = 'istakip_v4_recognitions'
+const FORMS_KEY = 'istakip_v4_control_forms'
+const FORM_ANSWERS_KEY = 'istakip_v4_form_answers'
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -348,6 +355,9 @@ export function demoCreateTask(input: {
   assigneeIds?: string[]
   assigneeNames?: string[]
   assignEveryone?: boolean
+  formId?: string
+  formName?: string
+  formItems?: TaskFormItem[]
 }) {
   const now = Date.now()
   const id = createLocalId()
@@ -371,6 +381,13 @@ export function demoCreateTask(input: {
       ? { assigneeId: assigneeIds[0], assigneeName: assigneeNames[0] }
       : {}),
     ...(input.dueAt ? { dueAt: input.dueAt } : {}),
+    ...(input.formItems && input.formItems.length > 0
+      ? {
+          formId: input.formId,
+          formName: input.formName || 'Kontrol formu',
+          formItems: input.formItems,
+        }
+      : {}),
   }
   const tasks = allDemoTasks()
   tasks.unshift(task)
@@ -379,6 +396,10 @@ export function demoCreateTask(input: {
   let who = 'Atama yok'
   if (input.assignEveryone) who = 'Herkese atandı'
   else if (assigneeNames.length) who = `Atanan: ${assigneeNames.join(', ')}`
+  const formBit =
+    input.formItems && input.formItems.length > 0
+      ? ` · Form: ${input.formName || 'Kontrol'} (${input.formItems.length} madde)`
+      : ''
 
   const updates = read<TaskUpdate[]>(UPDATES_KEY, [])
   updates.push({
@@ -389,8 +410,8 @@ export function demoCreateTask(input: {
     type: 'created',
     status: 'open',
     message: input.dueAt
-      ? `Görev oluşturuldu · ${who} · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}`
-      : `Görev oluşturuldu · ${who}`,
+      ? `Görev oluşturuldu · ${who} · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}${formBit}`
+      : `Görev oluşturuldu · ${who}${formBit}`,
     createdAt: now,
   })
   write(UPDATES_KEY, updates)
@@ -632,4 +653,141 @@ export function demoCountOpenTasksByPerson(orgId: string, profileId: string) {
       t.createdById === profileId &&
       t.status !== 'completed',
   ).length
+}
+
+export function demoGetControlForms(orgId: string): ControlForm[] {
+  return read<ControlForm[]>(FORMS_KEY, [])
+    .filter((f) => f.orgId === orgId)
+    .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+}
+
+export function demoCreateControlForm(input: {
+  orgId: string
+  name: string
+  description?: string
+  items: { text: string }[]
+  member: Session
+}): ControlForm {
+  const name = input.name.trim()
+  if (!name) throw new Error('Form adı gerekli')
+  const items: ControlFormItem[] = input.items
+    .map((it, i) => ({ id: createLocalId(), text: it.text.trim(), order: i }))
+    .filter((it) => it.text)
+  if (items.length === 0) throw new Error('En az bir madde ekleyin')
+  const now = Date.now()
+  const form: ControlForm = {
+    id: createLocalId(),
+    orgId: input.orgId,
+    name,
+    description: input.description?.trim(),
+    items,
+    createdAt: now,
+    updatedAt: now,
+    createdById: input.member.memberId,
+    createdByName: input.member.memberName,
+  }
+  const list = read<ControlForm[]>(FORMS_KEY, [])
+  list.push(form)
+  write(FORMS_KEY, list)
+  return form
+}
+
+export function demoUpdateControlForm(input: {
+  formId: string
+  name: string
+  description?: string
+  items: { id?: string; text: string }[]
+}) {
+  const name = input.name.trim()
+  if (!name) throw new Error('Form adı gerekli')
+  const items: ControlFormItem[] = input.items
+    .map((it, i) => ({
+      id: it.id || createLocalId(),
+      text: it.text.trim(),
+      order: i,
+    }))
+    .filter((it) => it.text)
+  if (items.length === 0) throw new Error('En az bir madde ekleyin')
+  write(
+    FORMS_KEY,
+    read<ControlForm[]>(FORMS_KEY, []).map((f) =>
+      f.id === input.formId
+        ? {
+            ...f,
+            name,
+            description: input.description?.trim(),
+            items,
+            updatedAt: Date.now(),
+          }
+        : f,
+    ),
+  )
+}
+
+export function demoDeleteControlForm(formId: string) {
+  write(
+    FORMS_KEY,
+    read<ControlForm[]>(FORMS_KEY, []).filter((f) => f.id !== formId),
+  )
+}
+
+type DemoFormAnswer = TaskFormAnswer & { groupId: string; taskId: string }
+
+export function demoGetFormAnswers(taskId: string): TaskFormAnswer[] {
+  return read<DemoFormAnswer[]>(FORM_ANSWERS_KEY, [])
+    .filter((a) => a.taskId === taskId)
+    .map(({ groupId: _g, taskId: _t, ...rest }) => rest)
+}
+
+export function demoSaveFormAnswer(input: {
+  groupId: string
+  taskId: string
+  forProfileId: string
+  forProfileName: string
+  responses: Record<string, FormItemResponse>
+  member: Session
+  asAdmin?: boolean
+}) {
+  const now = Date.now()
+  const list = read<DemoFormAnswer[]>(FORM_ANSWERS_KEY, [])
+  const row: DemoFormAnswer = {
+    groupId: input.groupId,
+    taskId: input.taskId,
+    profileId: input.forProfileId,
+    profileName: input.forProfileName,
+    responses: input.responses,
+    updatedAt: now,
+    updatedById: input.member.memberId,
+    updatedByName: input.member.memberName,
+    answeredAsAdmin: Boolean(input.asAdmin),
+  }
+  const idx = list.findIndex(
+    (a) => a.taskId === input.taskId && a.profileId === input.forProfileId,
+  )
+  if (idx >= 0) list[idx] = row
+  else list.push(row)
+  write(FORM_ANSWERS_KEY, list)
+
+  write(
+    TASKS_KEY,
+    allDemoTasks().map((t) =>
+      t.id === input.taskId ? { ...t, updatedAt: now } : t,
+    ),
+  )
+
+  const yes = Object.values(input.responses).filter((r) => r.answer === 'yes').length
+  const no = Object.values(input.responses).filter((r) => r.answer === 'no').length
+  const updates = read<TaskUpdate[]>(UPDATES_KEY, [])
+  updates.push({
+    id: createLocalId(),
+    taskId: input.taskId,
+    memberId: input.member.memberId,
+    memberName: input.member.memberName,
+    type: 'note',
+    message: input.asAdmin
+      ? `Form yanıtı (yönetici → ${input.forProfileName}): Evet ${yes} · Hayır ${no}`
+      : `Form yanıtı: Evet ${yes} · Hayır ${no}`,
+    createdAt: now,
+  })
+  write(UPDATES_KEY, updates)
 }

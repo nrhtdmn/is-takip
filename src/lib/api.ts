@@ -30,6 +30,9 @@ import { getDb, getFirebaseAuth, getFirebaseFunctions, isFirebaseConfigured, tcA
 import { effectivePlan } from './plans'
 import { isValidTc, normalizeTc } from './tc'
 import type {
+  ControlForm,
+  ControlFormItem,
+  FormItemResponse,
   Group,
   Organization,
   OrgMembership,
@@ -40,6 +43,8 @@ import type {
   Recognition,
   Task,
   TaskCategory,
+  TaskFormAnswer,
+  TaskFormItem,
   TaskStatus,
   TaskUpdate,
 } from '../types'
@@ -888,6 +893,9 @@ export async function createTask(input: {
   assigneeIds?: string[]
   assigneeNames?: string[]
   assignEveryone?: boolean
+  formId?: string
+  formName?: string
+  formItems?: TaskFormItem[]
 }) {
   const now = Date.now()
   const assigneeIds = input.assigneeIds || []
@@ -910,6 +918,11 @@ export async function createTask(input: {
     payload.assigneeId = assigneeIds[0]
     payload.assigneeName = assigneeNames[0]
   }
+  if (input.formItems && input.formItems.length > 0) {
+    payload.formId = input.formId || null
+    payload.formName = input.formName || 'Kontrol formu'
+    payload.formItems = input.formItems
+  }
 
   const ref = await addDoc(tasksCol(input.groupId), payload)
 
@@ -917,14 +930,19 @@ export async function createTask(input: {
   if (input.assignEveryone) who = 'Herkese atandı'
   else if (assigneeNames.length) who = `Atanan: ${assigneeNames.join(', ')}`
 
+  const formBit =
+    input.formItems && input.formItems.length > 0
+      ? ` · Form: ${input.formName || 'Kontrol'} (${input.formItems.length} madde)`
+      : ''
+
   await addUpdate(input.groupId, ref.id, {
     memberId: input.member.memberId,
     memberName: input.member.memberName,
     type: 'created',
     status: 'open',
     message: input.dueAt
-      ? `Görev oluşturuldu · ${who} · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}`
-      : `Görev oluşturuldu · ${who}`,
+      ? `Görev oluşturuldu · ${who} · Miad: ${new Date(input.dueAt).toLocaleString('tr-TR')}${formBit}`
+      : `Görev oluşturuldu · ${who}${formBit}`,
     createdAt: now,
   })
 
@@ -1138,7 +1156,160 @@ export async function addTaskNote(input: {
 export async function deleteTask(groupId: string, taskId: string) {
   const ups = await getDocs(updatesCol(groupId, taskId))
   await Promise.all(ups.docs.map((u) => deleteDoc(u.ref)))
+  const answers = await getDocs(formAnswersCol(groupId, taskId))
+  await Promise.all(answers.docs.map((a) => deleteDoc(a.ref)))
   await deleteDoc(taskDoc(groupId, taskId))
+}
+
+function controlFormsCol() {
+  return collection(getDb(), 'controlForms')
+}
+
+function formAnswersCol(groupId: string, taskId: string) {
+  return collection(getDb(), 'groups', groupId, 'tasks', taskId, 'formAnswers')
+}
+
+export function subscribeControlForms(
+  orgId: string,
+  onData: (forms: ControlForm[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const q = query(controlFormsCol(), where('orgId', '==', orgId))
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<ControlForm, 'id'>),
+      }))
+      list.sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+      onData(list)
+    },
+    (error) => onError?.(error),
+  )
+}
+
+export async function createControlForm(input: {
+  orgId: string
+  name: string
+  description?: string
+  items: { text: string }[]
+  member: Session
+}): Promise<ControlForm> {
+  const name = input.name.trim()
+  if (!name) throw new Error('Form adı gerekli')
+  const items: ControlFormItem[] = input.items
+    .map((it, i) => ({
+      id: createLocalId(),
+      text: it.text.trim(),
+      order: i,
+    }))
+    .filter((it) => it.text)
+  if (items.length === 0) throw new Error('En az bir madde ekleyin')
+  const now = Date.now()
+  const ref = await addDoc(controlFormsCol(), {
+    orgId: input.orgId,
+    name,
+    description: input.description?.trim() || null,
+    items,
+    createdAt: now,
+    updatedAt: now,
+    createdById: input.member.memberId,
+    createdByName: input.member.memberName,
+  })
+  return {
+    id: ref.id,
+    orgId: input.orgId,
+    name,
+    description: input.description?.trim(),
+    items,
+    createdAt: now,
+    updatedAt: now,
+    createdById: input.member.memberId,
+    createdByName: input.member.memberName,
+  }
+}
+
+export async function updateControlForm(input: {
+  formId: string
+  name: string
+  description?: string
+  items: { id?: string; text: string }[]
+}): Promise<void> {
+  const name = input.name.trim()
+  if (!name) throw new Error('Form adı gerekli')
+  const items: ControlFormItem[] = input.items
+    .map((it, i) => ({
+      id: it.id || createLocalId(),
+      text: it.text.trim(),
+      order: i,
+    }))
+    .filter((it) => it.text)
+  if (items.length === 0) throw new Error('En az bir madde ekleyin')
+  await updateDoc(doc(getDb(), 'controlForms', input.formId), {
+    name,
+    description: input.description?.trim() || null,
+    items,
+    updatedAt: Date.now(),
+  })
+}
+
+export async function deleteControlForm(formId: string) {
+  await deleteDoc(doc(getDb(), 'controlForms', formId))
+}
+
+export function subscribeFormAnswers(
+  groupId: string,
+  taskId: string,
+  onData: (answers: TaskFormAnswer[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    formAnswersCol(groupId, taskId),
+    (snap) => {
+      onData(
+        snap.docs.map((d) => ({
+          ...(d.data() as TaskFormAnswer),
+          profileId: d.id,
+        })),
+      )
+    },
+    (error) => onError?.(error),
+  )
+}
+
+export async function saveFormAnswer(input: {
+  groupId: string
+  taskId: string
+  /** Yanıt kimin adına */
+  forProfileId: string
+  forProfileName: string
+  responses: Record<string, FormItemResponse>
+  member: Session
+  asAdmin?: boolean
+}) {
+  const now = Date.now()
+  await setDoc(doc(formAnswersCol(input.groupId, input.taskId), input.forProfileId), {
+    profileId: input.forProfileId,
+    profileName: input.forProfileName,
+    responses: input.responses,
+    updatedAt: now,
+    updatedById: input.member.memberId,
+    updatedByName: input.member.memberName,
+    answeredAsAdmin: Boolean(input.asAdmin),
+  })
+  await updateDoc(taskDoc(input.groupId, input.taskId), { updatedAt: now })
+  const yes = Object.values(input.responses).filter((r) => r.answer === 'yes').length
+  const no = Object.values(input.responses).filter((r) => r.answer === 'no').length
+  await addUpdate(input.groupId, input.taskId, {
+    memberId: input.member.memberId,
+    memberName: input.member.memberName,
+    type: 'note',
+    message: input.asAdmin
+      ? `Form yanıtı (yönetici → ${input.forProfileName}): Evet ${yes} · Hayır ${no}`
+      : `Form yanıtı: Evet ${yes} · Hayır ${no}`,
+    createdAt: now,
+  })
 }
 
 /** Stripe Checkout oturumu oluşturur (Cloud Functions). */

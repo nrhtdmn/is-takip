@@ -14,6 +14,7 @@ import {
   subscribeOrgTasks,
   subscribeProfilesForIds,
   subscribeTasks,
+  subscribeControlForms,
   watchAuth,
   getProfileById,
   resolveProfileIdForUid,
@@ -23,6 +24,7 @@ import {
 import { isFirebaseConfigured } from '../lib/firebase'
 import {
   demoEnsureDefaults,
+  demoGetControlForms,
   demoGetGroups,
   demoGetMembershipsForOrg,
   demoGetMembershipsForProfile,
@@ -32,7 +34,15 @@ import {
   demoGetTasksForGroup,
   demoGetTasksForGroups,
 } from '../lib/demoStore'
-import type { Group, Organization, OrgMembership, Profile, Recognition, Task } from '../types'
+import type {
+  ControlForm,
+  Group,
+  Organization,
+  OrgMembership,
+  Profile,
+  Recognition,
+  Task,
+} from '../types'
 import { isValidTc, normalizeTc } from '../lib/tc'
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -48,6 +58,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [orgTasks, setOrgTasks] = useState<(Task & { groupId: string })[]>([])
   const [recognitions, setRecognitions] = useState<Recognition[]>([])
+  const [controlForms, setControlForms] = useState<ControlForm[]>([])
   const [loading, setLoading] = useState(true)
   const [tick, setTick] = useState(0)
   const demoMode = !isFirebaseConfigured
@@ -311,6 +322,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return subscribeOrgRecognitions(session.orgId, setRecognitions, (e) => console.error(e))
   }, [session?.orgId, demoMode, tick])
 
+  useEffect(() => {
+    if (!session?.orgId) {
+      setControlForms([])
+      return
+    }
+    if (demoMode) {
+      setControlForms(demoGetControlForms(session.orgId))
+      return
+    }
+    return subscribeControlForms(session.orgId, setControlForms, (e) => console.error(e))
+  }, [session?.orgId, demoMode, tick])
+
   const value = useMemo(
     () => ({
       session,
@@ -322,6 +345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tasks,
       orgTasks,
       recognitions,
+      controlForms,
       loading: loading || !authReady,
       demoMode,
       setSession,
@@ -343,6 +367,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tasks,
       orgTasks,
       recognitions,
+      controlForms,
       loading,
       authReady,
       demoMode,

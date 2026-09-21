@@ -29,6 +29,7 @@ import { PlanScreen } from './PlanScreen'
 import { SoftAdBanner } from './SoftAdBanner'
 import { MembersScreen } from './MembersScreen'
 import { ProfileScreen } from './ProfileScreen'
+import { ControlFormsScreen } from './ControlFormsScreen'
 import { DrawerShell } from './DrawerShell'
 import { MemberSearchList } from './MemberSearchList'
 import { TopNav, KebabMenu } from './TopNav'
@@ -62,6 +63,7 @@ export function GroupScreen() {
   const [managingId, setManagingId] = useState<string | null>(null)
   const [adminOpen, setAdminOpen] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
+  const [formsOpen, setFormsOpen] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [name, setName] = useState('')
@@ -420,6 +422,9 @@ export function GroupScreen() {
         <TopNav>
           <button type="button" className="btn ghost compact" onClick={() => setMembersOpen(true)}>
             Üyeler
+          </button>
+          <button type="button" className="btn ghost compact" onClick={() => setFormsOpen(true)}>
+            Kontrol formları
           </button>
           <button type="button" className="btn ghost compact" onClick={() => setPlanOpen(true)}>
             {plan.label}
@@ -886,6 +891,7 @@ export function GroupScreen() {
       )}
 
       {planOpen && <PlanScreen onClose={() => setPlanOpen(false)} />}
+      {formsOpen && <ControlFormsScreen onClose={() => setFormsOpen(false)} />}
       {membersOpen && <MembersScreen scope="org" onClose={() => setMembersOpen(false)} />}
       {profileOpen && <ProfileScreen onClose={() => setProfileOpen(false)} />}
       {approvalTask && (
