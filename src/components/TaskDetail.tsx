@@ -42,7 +42,7 @@ export function TaskDetail({
   onDeleted?: () => void
   groupIdOverride?: string
 }) {
-  const { session, demoMode, refreshLocal, isOrgAdmin } = useApp()
+  const { session, demoMode, refreshLocal, isOrgAdmin, myMemberships } = useApp()
   const [updates, setUpdates] = useState<TaskUpdate[]>([])
   const [note, setNote] = useState('')
   const [failReason, setFailReason] = useState('')
@@ -174,6 +174,11 @@ export function TaskDetail({
   }
 
   const remove = async () => {
+    const role = myMemberships.find((m) => m.orgId === session?.orgId)?.role
+    if (role !== 'admin') {
+      setError('Görevi yalnızca yönetici silebilir')
+      return
+    }
     if (!confirm('Bu görevi silmek istiyor musun?')) return
     setBusy(true)
     setError('')
@@ -226,7 +231,9 @@ export function TaskDetail({
   }
 
   const status = STATUS_META[task.status]
-  const canEdit = isOrgAdmin
+  const membershipRole = myMemberships.find((m) => m.orgId === session.orgId)?.role
+  const canEdit = membershipRole === 'admin'
+  const canDelete = membershipRole === 'admin'
 
   return (
     <DrawerPortal>
@@ -485,7 +492,7 @@ export function TaskDetail({
               </ul>
             </section>
 
-            {isOrgAdmin && (
+            {canDelete && (
               <section className="drawer-section">
                 <button type="button" className="btn danger" disabled={busy} onClick={remove}>
                   Görevi sil

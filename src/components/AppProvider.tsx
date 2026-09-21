@@ -114,9 +114,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const currentOrg = organizations.find((o) => o.id === session?.orgId)
   const membershipRole = myMemberships.find((m) => m.orgId === session?.orgId)?.role
-  const isOrgAdmin =
-    membershipRole === 'admin' ||
-    (membershipRole == null && session?.orgRole === 'admin')
+  // Yalnızca üyelik kaydı admin ise; oturumda kalan eski rol ile yetki verme
+  const isOrgAdmin = membershipRole === 'admin'
 
   // Firebase Auth oturumu
   useEffect(() => {
