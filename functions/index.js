@@ -115,6 +115,14 @@ function taskPeople(t) {
   return [...set]
 }
 
+/** Yalnızca atananlar (oluşturan dahil değil — atama bildirimi için) */
+function taskAssignees(t) {
+  const set = new Set()
+  if (t.assigneeId) set.add(t.assigneeId)
+  for (const id of t.assigneeIds || []) set.add(id)
+  return [...set]
+}
+
 function listDiff(before = [], after = []) {
   const b = new Set(before)
   return after.filter((id) => id && !b.has(id))
@@ -454,12 +462,12 @@ exports.onTaskNotify = onDocumentUpdated(
       })
     }
 
-    // Onay / red → atananlar
+    // Onay / red → atananlar (+ oluşturan)
     const decided =
       (after.approvalStatus === 'approved' || after.approvalStatus === 'rejected') &&
       before.approvalStatus !== after.approvalStatus
     if (decided) {
-      const people = taskPeople(after).filter((id) => !adminIds.includes(id) || true)
+      const people = taskPeople(after).filter((id) => id !== after.approvedById)
       await notifyProfiles(people, 'approvalDecision', {
         title: after.approvalStatus === 'approved' ? 'Görev onaylandı' : 'Görev reddedildi',
         body: title,
@@ -470,7 +478,7 @@ exports.onTaskNotify = onDocumentUpdated(
       })
     }
 
-    // Yeni atananlar
+    // Yeni atananlar (oluşturanı atama bildiriminden çıkar)
     const beforeAssignees = [
       ...(before.assigneeIds || []),
       ...(before.assigneeId ? [before.assigneeId] : []),
@@ -480,18 +488,22 @@ exports.onTaskNotify = onDocumentUpdated(
       ...(after.assigneeId ? [after.assigneeId] : []),
     ]
     let newly = listDiff(beforeAssignees, afterAssignees)
-    if (after.assignEveryone && !before.assignEveryone && orgId) {
+    if (after.assignEveryone && !before.assignEveryone) {
       newly = [...new Set([...(groupSnap.data()?.memberIds || []), ...newly])]
     }
+    newly = newly.filter((id) => id && id !== after.createdById)
     if (newly.length) {
-      await notifyProfiles(newly, 'taskAssigned', {
-        title: 'Yeni görev atandı',
-        body: title,
-        groupId,
-        taskId,
-        kind: 'assigned',
-        notifKey: `assigned:${taskId}:${Date.now()}`,
-      })
+      const notifKey = `assigned:${taskId}`
+      if (await claimReceipt(`${notifKey}:upd:${newly.sort().join(',')}`)) {
+        await notifyProfiles(newly, 'taskAssigned', {
+          title: 'Yeni görev atandı',
+          body: title,
+          groupId,
+          taskId,
+          kind: 'assigned',
+          notifKey,
+        })
+      }
     }
 
     // İçerik / durum / miad değişimi
@@ -514,21 +526,23 @@ exports.onTaskNotify = onDocumentUpdated(
   },
 )
 
-/** Yeni görev oluşturulunca atananlara */
+/** Yeni görev oluşturulunca atananlara (oluşturan hariç) */
 exports.onTaskCreatedNotify = onDocumentCreated(
   'groups/{groupId}/tasks/{taskId}',
   async (event) => {
     const after = event.data?.data() || {}
     const groupId = event.params.groupId
     const taskId = event.params.taskId
-    const people = taskPeople(after)
-    if (!people.length && !after.assignEveryone) return
-
-    let recipients = people
+    let recipients = taskAssignees(after)
     if (after.assignEveryone) {
       const groupSnap = await db.collection('groups').doc(groupId).get()
-      recipients = [...new Set([...(groupSnap.data()?.memberIds || []), ...people])]
+      recipients = [...new Set([...(groupSnap.data()?.memberIds || []), ...recipients])]
     }
+    recipients = recipients.filter((id) => id && id !== after.createdById)
+    if (!recipients.length) return
+
+    const notifKey = `assigned:${taskId}`
+    if (!(await claimReceipt(notifKey))) return
 
     await notifyProfiles(recipients, 'taskAssigned', {
       title: 'Yeni görev atandı',
@@ -536,7 +550,7 @@ exports.onTaskCreatedNotify = onDocumentCreated(
       groupId,
       taskId,
       kind: 'assigned',
-      notifKey: `assigned:${taskId}`,
+      notifKey,
     })
   },
 )

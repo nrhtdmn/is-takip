@@ -123,10 +123,18 @@ export function NotificationSettingsScreen({ onClose }: { onClose: () => void })
             }}
           />
           <span>
-            <strong>Cihaz bildirimi (push)</strong>
-            <span className="muted tiny block">Uygulama kapalıyken de gösterebilmek için</span>
+            <strong>Tarayıcı bildirimi</strong>
+            <span className="muted tiny block">
+              Uygulama veya PWA açıkken (arka planda sekme dahil) görev ataması, onay ve
+              miad bildirimleri
+            </span>
           </span>
         </label>
+        <p className="muted tiny">
+          Spark planında uygulama tamamen kapalıyken bildirim gelmez; bunun için Blaze +
+          Cloud Functions gerekir. Açıkken tüm kategoriler çalışır — Functions deploy
+          etmenize gerek yok.
+        </p>
 
         <h3 className="section-title">Kategoriler</h3>
         {cats.map((key) => {

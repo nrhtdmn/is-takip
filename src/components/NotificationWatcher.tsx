@@ -16,7 +16,16 @@ import {
 } from '../lib/notifNav'
 
 export function NotificationWatcher() {
-  const { session, setSession, groups, orgTasks, tasks, isOrgAdmin, demoMode } = useApp()
+  const {
+    session,
+    setSession,
+    groups,
+    orgTasks,
+    tasks,
+    recognitions,
+    isOrgAdmin,
+    demoMode,
+  } = useApp()
   const [banner, setBanner] = useState(false)
 
   useEffect(() => {
@@ -49,8 +58,9 @@ export function NotificationWatcher() {
       profileId: session.memberId,
       isOrgAdmin,
       tasks: list,
+      recognitions,
     })
-  }, [session?.memberId, isOrgAdmin, orgTasks, tasks])
+  }, [session?.memberId, isOrgAdmin, orgTasks, tasks, recognitions])
 
   // Bildirimden gelen gruba geç (görev açma HomeScreen'de)
   useEffect(() => {
